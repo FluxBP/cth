@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+
+// --------------------------------------------------------------------------------------------
+// Test that compiles, deploys, and calls a contract
+// --------------------------------------------------------------------------------------------
+
+require('CthTestLib');
+
+// --------------------------------------------------------------------------------------------
+// Compile mycontract
+// --------------------------------------------------------------------------------------------
+
+const childProcess = require('child_process');
+
+childProcess.execSync('cdt-cpp mycontract.cpp --abigen --no-missing-ricardian-clause');
+
+// --------------------------------------------------------------------------------------------
+// Run nodeos
+// --------------------------------------------------------------------------------------------
+
+fixtureInit();
+
+// --------------------------------------------------------------------------------------------
+// Deploy mycontract and call it
+// --------------------------------------------------------------------------------------------
+
+try {
+
+    cleos('system newaccount eosio mycontract EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-cpu "10000.0000 EOS" --stake-net "10000.0000 EOS" --buy-ram-kbytes 10000 --transfer');
+
+    cleos('set contract mycontract . mycontract.wasm mycontract.abi -p mycontract');
+
+    mycontract = getProxyForContract(`mycontract`);
+
+    mycontract._log().helloworld();
+
+} catch (error) {
+    fixtureFinish(error);
+}
+
+// --------------------------------------------------------------------------------------------
+// Shut down nodeos and clean up
+// --------------------------------------------------------------------------------------------
+
+fixtureFinish();

@@ -1,0 +1,133 @@
+#!/usr/bin/perl
+
+# --------------------------------------------------------------------------------------------
+# nodeos-tool create
+#
+# This script is typically invoked by test drivers to create a fresh nodeos directory.
+# It will set up a nodeos config directory with good default parameters, a config.ini that
+#   runs all producers in the same nodeos, and using standard HTTP port 8888 (the default
+#   for cleos, not requiring a cleos --url parameter) and P2P port 10000.
+# It also creates a convenient start_nodeos.sh in the directory that can be used to start
+#   nodeos with the given configuration files.
+# --------------------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+use Cwd;
+
+my $working_dir = getcwd();
+
+print "nodeos-tool create: working at $working_dir to create the default nodeos configuration files; http-server-address will be 127.0.0.1:8888 and p2p-listen-endpoint will be 127.0.0.1:10000.\n";
+
+# --------------------------------------------------------------------------------------------
+# Generate the genesis.json in the current directory
+# --------------------------------------------------------------------------------------------
+
+`rm -f genesis.json`;
+
+`echo '{
+  "initial_timestamp": "2018-12-05T08:55:11.000",
+  "initial_key": "EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV",
+  "initial_configuration": {
+    "max_block_net_usage": 1048576,
+    "target_block_net_usage_pct": 1000,
+    "max_transaction_net_usage": 524288,
+    "base_per_transaction_net_usage": 12,
+    "net_usage_leeway": 500,
+    "context_free_discount_net_usage_num": 20,
+    "context_free_discount_net_usage_den": 100,
+    "max_block_cpu_usage": 100000,
+    "target_block_cpu_usage_pct": 500,
+    "max_transaction_cpu_usage": 99899,
+    "min_transaction_cpu_usage": 100,
+    "max_transaction_lifetime": 3600,
+    "deferred_trx_expiration_window": 600,
+    "max_transaction_delay": 3888000,
+    "max_inline_action_size": 4096,
+    "max_inline_action_depth": 4,
+    "max_authority_depth": 6
+  },
+  "initial_chain_id": "0000000000000000000000000000000000000000000000000000000000000000"
+}' > genesis.json`;
+
+# --------------------------------------------------------------------------------------------
+# Generate the config.ini in the current directory
+# --------------------------------------------------------------------------------------------
+
+`rm -f config.ini`;
+
+`echo '
+http-server-address = 127.0.0.1:8888
+p2p-listen-endpoint = 127.0.0.1:10000
+enable-stale-production = true
+producer-name = eosio
+producer-name = bpa
+producer-name = bpb
+producer-name = bpc
+producer-name = bpd
+producer-name = bpe
+producer-name = bpf
+producer-name = bpg
+producer-name = bph
+producer-name = bpi
+producer-name = bpj
+producer-name = bpk
+producer-name = bpl
+producer-name = bpm
+producer-name = bpn
+producer-name = bpo
+producer-name = bpp
+producer-name = bpq
+producer-name = bpr
+producer-name = bps
+producer-name = bpt
+producer-name = bpu
+chain-state-db-size-mb = 2048
+plugin = eosio::chain_plugin
+plugin = eosio::chain_api_plugin
+plugin = eosio::http_plugin
+plugin = eosio::producer_api_plugin
+plugin = eosio::producer_plugin
+access-control-allow-origin = *
+http-validate-host = false
+contracts-console = true
+signature-provider = EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV=KEY:5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3
+net-threads = 3
+wasm-runtime = eos-vm-jit
+p2p-max-nodes-per-host = 999
+http-max-response-time-ms = 5000
+max-transaction-time = 500
+resource-monitor-interval-seconds = 300
+resource-monitor-not-shutdown-on-threshold-exceeded = true
+resource-monitor-warning-interval = 450
+' > config.ini`;
+
+# --------------------------------------------------------------------------------------------
+# Generate the start_nodeos.sh file in the current directory. This starts nodeos using the
+#  current directory as the data and config dirs and the genesis.json we generated above,
+#  sets up logging, redirects all output to chain.log and saves the nodeos PID to nodeos.pid.
+# --------------------------------------------------------------------------------------------
+
+`rm -rf start_nodeos.sh`;
+
+`echo 'nodeos --config-dir ./ --data-dir ./data --genesis-json ./genesis.json  >> "./chain.log" 2>&1 & echo \$! > "./nodeos.pid"' > start_nodeos.sh`;
+
+`chmod +x start_nodeos.sh`;
+
+# --------------------------------------------------------------------------------------------
+# Check for errors
+# --------------------------------------------------------------------------------------------
+
+my $errors = 0;
+
+if (! -e 'genesis.json') { print "ERROR: nodeos-tool create: could not create genesis.json file\n"; $errors = 1; }
+if (! -e 'config.ini') { print "ERROR: nodeos-tool create: could not create config.ini file\n"; $errors = 1; }
+if (! -e 'start_nodeos.sh') { print "ERROR: nodeos-tool create: could not create start_nodeos.sh file\n"; $errors = 1; }
+if (! -x 'start_nodeos.sh') { print "ERROR: nodeos-tool create: could not make start_nodeos.sh file executable\n"; $errors = 1; }
+
+if ($errors) {
+   print "ERROR: nodeos-tool create: failed to create the files.\n";
+   exit 1;
+}
+
+print "nodeos-tool create: completed successfully.\n";

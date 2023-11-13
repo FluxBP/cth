@@ -1,0 +1,292 @@
+#!/usr/bin/perl
+
+# --------------------------------------------------------------------------------------------
+# Driver: doh-hotstart
+# Operation: start
+#
+# This driver depends on two drivers:
+# - coldstart: to create a nodeos state (data) directory for a fully-booted and activated
+#     Antelope blockchain. This is done at installation time. At runtime, this dependency
+#     doesn't exist.
+# - cleos-driver: has the wallet file and a running keosd (from /local/cleos-driver/)
+#
+# The template data directory is created during driver installation using the (already
+#   installed) coldstart driver.
+#
+# This driver supports parallel execution. It will create a directory
+#   /local/hotstart/instances/<nodeos-p2p-port-number> for a local port that isn't taken,
+#   and if it can't create the directory, it will try again until it can find a port
+#   number that isn't taken by another hotstart instance (synchronized via folder creation).
+#   When successful, that directory will be where the new nodeos will be started. When
+#   successful, the allocatedd port number is returned in the last line of output of this
+#   script in a well-known format that can be captured by the caller.
+#
+# The HTTP port number is the P2P port number + 10000 (example: p2p:10000, HTTP:20000).
+# --------------------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+use File::Path qw(make_path);
+use Socket;
+use FindBin '$RealBin';
+use lib "$RealBin/../../tools/cth-utils";
+use CthUtils;
+
+$| = 1;  # Turn on auto-flush for STDOUT (Perl doesn't do this by default)
+
+my $lock_file = "lock_file";
+
+# The paths below is relative to the location of this script (which is the driver's directory)
+my $working_dir   = "../../local/hotstart";
+
+# The paths below are relative to the $working_dir
+my $template_dir    = "nodeos-template";
+my $instances_dir   = "instances";
+my $nodeos_tool_dir = "../../tools/nodeos-tool";
+
+# This is relative to the driver's working dir, not the driver dir
+my $cleos_driver_dir = "../../drivers/cleos-driver"; # /drivers/cleos-driver
+
+my $label; # passed as command-line argument: --label xxx
+
+# when the nodeos instance is up, that's where it will be (ports and directory)
+my $p2p_port_number;
+my $http_port_number;
+my $abs_this_inst_dir;
+
+my $cmd;
+my $o;
+
+# --------------------------------------------------------------------------------------------
+# Utils
+# --------------------------------------------------------------------------------------------
+
+sub test_port {
+    my $port = shift;
+    if (! defined $port) { die "ERROR: hotstart start: test_port(): invalid port"; }
+    socket(my $sock, PF_INET, SOCK_STREAM, 0) or die "ERROR: hotstart start: test_port(): Can´t create socket(): $!";
+    my $addr = sockaddr_in($port, INADDR_LOOPBACK);
+    my $ret;
+    if (bind($sock, $addr)) {
+        $ret = 1;
+    }
+    close($sock);
+    return $ret; # '1'(true) or undef(false)
+}
+
+# This actually calls clear
+# This driver (hotstart) allows for the creation of multiple nodeos/chainbases, so when a test fails,
+#   we can't really have the luxury of letting a bunch of directories available for debug.
+# During development of the driver itself, you may want to change this to 'stop' instead of 'clear' to
+#   leave the directory with logs etc. that you can inspect.
+sub do_stop {
+    print "hotstart start: stopping driver and wiping it clean ('clear')...\n";
+    my $clear_script = "$RealBin/clearinstance";
+    if (!-e $clear_script) {
+        print "ERROR: hotstart start: do_stop(): can't find $clear_script, nodeos not stopped and/or instance dir not cleared\n";
+        exit 1;
+    } else {
+        # could use $p2p_port_number here if it is defined, but whatever; --label comes from the invocation
+        my $o = `$clear_script  --label $label 2>&1`;
+        print "Result: $o\n";
+    }
+}
+
+# --------------------------------------------------------------------------------------------
+# The working_dir is relative to the script's directory. Make sure to create it, then find it,
+#   then change to it.
+# --------------------------------------------------------------------------------------------
+
+my $abs_nodeos_tool_dir = absolute("$RealBin/$nodeos_tool_dir", CthUtils::ABSOLUTE_MUST_EXIST);
+my $abs_working_dir = absolute("$RealBin/$working_dir", CthUtils::ABSOLUTE_ENSURE_CREATE); # NEW behavior
+my $abs_instances_dir = absolute("$abs_working_dir/$instances_dir", CthUtils::ABSOLUTE_ENSURE_CREATE);
+my $abs_template_dir = absolute("$abs_working_dir/$template_dir", CthUtils::ABSOLUTE_MUST_EXIST);
+
+chdir_for_sure($abs_working_dir);
+
+# global lock_file should already exist but touch it just to make sure it does (creating it in parallel is less bad
+#   than having it not exist at all for some reason).
+`touch lock_file`;
+
+# --------------------------------------------------------------------------------------------
+# While we are in a well-behaved directory depth, set up the cleos helper, as we will
+#   actually need it at the tail end of this script.
+# --------------------------------------------------------------------------------------------
+
+use lib "$RealBin/../../tools/cth-goodies";
+use CthGoodies;
+
+my $err = cth_set_cleos_provider('cleos-driver');
+if ($err) {
+    die "ERROR: hotstart start: cth_set_cleos_provider failed for some reason.\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Parse command-line arguments.
+# --------------------------------------------------------------------------------------------
+
+my ($switches, $options) = cth_standard_args_parser("label", "");
+
+# --------------------------------------------------------------------------------------------
+# Get the test label.
+# --------------------------------------------------------------------------------------------
+
+if (exists $switches->{'label'} && $switches->{'label'} ne '') {
+    $label = $switches->{'label'};
+    print "hotstart start: Test label (unique identifier): '$label'\n";
+} else {
+    die "ERROR: hotstart start: --label <test-UID> is a required argument.\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Ensure cleos-driver is running.
+# cleos-driver start should be able to handle being invoked in parallel by multiple
+#   processes (e.g. copies of doh-hostart start) gracefully.
+# --------------------------------------------------------------------------------------------
+
+print "hotstart start: Starting cleos-driver ...\n";
+
+$cmd = "$cleos_driver_dir/start";
+$o = `$cmd`;
+if ($? != 0) {
+    print "ERROR: hotstart start: cleos-driver start returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+} else {
+    print "hotstart start: cleos-driver output: $o\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Create a /local/hotstart/instances/<p2p-port> directory for the new nodeos instance.
+# Lock the driver's directory, do these operations, and unlock it.
+# Do non-blocking locking and wait for at most e.g. 10 seconds before giving up.
+# --------------------------------------------------------------------------------------------
+
+my @inst_dirs;
+my $total_inst_dirs;
+
+my $max_nblock_tries = 10;
+my $nblock_tries = $max_nblock_tries;
+
+while (1) {
+
+    # Acquire global lock on instances dir
+    open my $lockfile, ">", "$lock_file" or die "ERROR: hotstart start: Can't acquire lock file: $!";
+    if (flock($lockfile, 2 | 4)) {
+
+        # scan instances dir
+        opendir(my $dh, "$abs_instances_dir") or die "ERROR: hotstart start: Could not open instances directory: $!";
+        @inst_dirs = grep { -d "$abs_instances_dir/$_" && ! /^\.{1,2}$/} readdir($dh);
+        closedir($dh);
+        $total_inst_dirs = scalar @inst_dirs;
+        print "hotstart start: Found $total_inst_dirs instances.\n";
+
+        # find the largest p2p port number among created instances
+        my $largest = 10000; # start from 10001 since coldstart actually uses 10000
+        foreach my $number (@inst_dirs) {
+            if ($number > $largest) {
+                $largest = $number;
+            }
+        }
+        
+        # scan for available local TCP listen port numbers starting from the largest found + 1
+        $p2p_port_number = $largest + 1;
+        $http_port_number = $p2p_port_number + 10000;
+        while (!test_port($p2p_port_number) || !test_port($http_port_number)) {
+            $p2p_port_number++;
+            $http_port_number++;
+        }
+        
+        # so create it (guaranteed that it's not there)
+        $abs_this_inst_dir = "$abs_instances_dir/$p2p_port_number";
+        if (!make_path($abs_this_inst_dir)) {
+            close($lockfile); # unlock before dying
+            die "ERROR: hotstart start: Failed to create path for our new instance: '$abs_this_inst_dir': $!\n";
+        }
+        
+        # write the unique label there
+        `echo -n '$label' > $abs_this_inst_dir/label`;
+        if ($? != 0) {
+            close($lockfile); # unlock before dying
+            die "ERROR: hotstart start: Failed to create label file for our new instance: '$abs_this_inst_dir/label': $!\n";
+        }
+
+        # unlock
+        close($lockfile);
+
+        last;
+        
+    } else {
+        # non-blocking lock failed
+        $nblock_tries--;
+        if ($nblock_tries <= 0) {
+            die "ERROR: hotstart start: Timed out while trying to acquire lock_file\n";
+        } else {
+            print "hotstart start: lock_file acquisition failed; will try again..\n";
+        }
+
+        # try again later
+        sleep(1);
+    }
+}
+
+print "hotstart start: instance directory allocated for my p2p-port $p2p_port_number & my instance dir '$abs_this_inst_dir'\n";
+
+# --------------------------------------------------------------------------------------------
+# From here on, any fatal errors will require us to clean up this instance (via do_stop()).
+# Can't just leave the directories up (or a half-baked nodeos for that matter).
+# Tests calling drivers only clean up after themselves, not the drivers.
+# --------------------------------------------------------------------------------------------
+
+# Change into the instance's dir
+if (!chdir($abs_this_inst_dir)) {
+    print "ERROR: hotstart start: Failed to change working directory to 'abs_this_inst_dir': $!\n";
+    do_stop();
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Copy the chainbase over to this instance's created work dir
+# --------------------------------------------------------------------------------------------
+
+print "hotstart start: copying nodeos template from '$abs_template_dir' to my instance dir '$abs_this_inst_dir'\n";
+print `cp -r $abs_template_dir/* $abs_this_inst_dir`;
+if ($? != 0) {
+    print "ERROR: hotstart start: Failed to copy nodeos data directory: $!\n";
+    do_stop();
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Change the config.ini from the template to use the P2P port and HTTP port allocated for
+#   this new instance.
+# --------------------------------------------------------------------------------------------
+
+`sed -i 's/http-server-address = .*/http-server-address = 127.0.0.1:$http_port_number/g; s/p2p-listen-endpoint = .*/p2p-listen-endpoint = 127.0.0.1:$p2p_port_number/g' config.ini`;
+if ($? != 0) {
+    print "ERROR: hotstart start: Failed to update config.ini with correct instance port numbers: $!\n";
+    do_stop();
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Run nodeos-tool/start to start up nodeos in a child process using the
+#   chainbase/data/config/scripts in the current dir
+# --------------------------------------------------------------------------------------------
+
+print "hotstart start: Running tools/nodeos-tool/start to start nodeos from directory '$abs_this_inst_dir' ...\n";
+
+$cmd = "$abs_nodeos_tool_dir/start";
+$o = `$cmd`;
+if ($? != 0) {
+    print "ERROR: hotstart start: nodeos-tool start returned an error code.\n";
+    print "Output: $o\n";
+    do_stop();
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Done
+# --------------------------------------------------------------------------------------------
+
+print "hotstart start: instance $p2p_port_number started successfully.\n";

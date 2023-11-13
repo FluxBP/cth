@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# go to driver's dir to call stop
+cd "$(dirname "$0")"
+
+# stop the node if it isn't already stopped
+./stop
+
+# now make sure the current working dir is the driver's working dir
+# at ../../local/coldstart/
+if ! cd "../../local/coldstart"; then
+  echo "coldstart clear: cannot change directory to local/coldstart; assuming no running coldstart nodeos to clear"
+  exit 0
+fi
+
+# clear node data
+
+rm -rf ./data
+rm -rf ./protocol_features
+rm -f chain.log
+rm -f config.ini
+rm -f genesis.json
+rm -f start_nodeos.sh

@@ -1,0 +1,375 @@
+#!/usr/bin/perl
+
+# --------------------------------------------------------------------------------------------
+# Driver: coldstart
+# Operation: start
+#
+# This driver depends on one other driver:
+# - cleos-driver: has the wallet file and a running keosd (from /local/cleos-driver/)
+#
+# What this driver does:
+# - Start cleos-driver
+# - Start nodeos (all producers in one node), logging the PID to nodeos.pid
+# - Boot system contracts and init chain for use (requires driver install to compile
+#   reference contracts once)
+# - Elect the 21 block producers
+# --------------------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+use FindBin '$RealBin';
+use lib "$RealBin/../../tools/cth-utils";
+use CthUtils;
+
+$| = 1;  # Turn on auto-flush for STDOUT (Perl doesn't do this by default)
+
+# All drivers should chdir to their working dir, which should be a directory named after the
+#   driver under /local (e.g. cth/local/coldstart) which should be created if it doesn't exist.
+# The path below is relative to the location of this script (which is the driver's directory)
+my $working_dir = "../../local/coldstart";
+
+# These are relative to the driver's working dir, not the driver dir
+my $cleos_driver_dir = "../../drivers/cleos-driver"; # driver location (e.g. 'start' script)
+my $cleos_driver_wallet_dir = "../cleos-driver"; # cleos data dir w/ keosd.pid, wallet file, password file etc.
+my $nodeos_tool_dir = "../../tools/nodeos-tool";
+
+my $cleos = "cleos --wallet-url unix://$cleos_driver_wallet_dir/keosd.sock";
+
+my $verbose = 1;
+
+my $nodeos_pid_file = "nodeos.pid";
+
+my $running_nodeos_pid;
+
+my $cmd;
+my $o;
+
+# --------------------------------------------------------------------------------------------
+# Go to the driver dir
+# --------------------------------------------------------------------------------------------
+
+chdir_for_sure($RealBin);
+
+# --------------------------------------------------------------------------------------------
+# Tee all output to start.log
+# --------------------------------------------------------------------------------------------
+
+my $log_file = "start.log";
+if (-e $log_file) { unlink $log_file or die "ERROR: coldstart start: Could not delete '$log_file': $!"; }
+open(STDOUT, "| tee -a $log_file") or die "ERROR: coldstart start: Can't open '$log_file': $!"; # Redirect STDOUT to tee
+open(STDERR, ">&STDOUT"); # Redirect STDERR to STDOUT
+
+# --------------------------------------------------------------------------------------------
+# The working_dir is relative to the script's directory. Make sure to create it, then find it,
+#   then change to it.
+# --------------------------------------------------------------------------------------------
+
+my $abs_working_dir = absolute("$RealBin/$working_dir", CthUtils::ABSOLUTE_ENSURE_CREATE);
+
+chdir_for_sure($abs_working_dir);
+
+# --------------------------------------------------------------------------------------------
+# Load and set up the CthGoodies library to use the cleos-driver
+# --------------------------------------------------------------------------------------------
+
+use lib "$RealBin/../../tools/cth-goodies";
+use CthGoodies;
+
+my $err = cth_set_cleos_provider('cleos-driver');
+if ($err) {
+    die "ERROR: coldstart start: cth_set_cleos_provider failed for some reason.\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Utils
+# --------------------------------------------------------------------------------------------
+
+sub read_from_file {
+    my $file_path = shift;
+    if (!defined $file_path) { die "ERROR: read_from_file: undefined file_path"; }
+    local $/;
+    open my $file_handle, '<', $file_path or die "ERROR: read_from_file: Could not open file '$file_path': $!";
+    my $string = <$file_handle>;
+    close $file_handle;
+    $string =~ s/\R\z//;
+    return $string;
+}
+
+# This actually calls clear
+sub do_stop {
+    print "Stopping driver and wiping it clean ('clear')...\n";
+
+    # we have moved the working dir to local/coldstart so have to go back to the driver dir
+    my $clear_script = "../../drivers/coldstart/clear";
+    if (!-e $clear_script) {
+        print "ERROR: can't find drivers/coldstart/clear script, nodeos not stopped / cleared\n";
+        exit 1;
+    } else {
+        my $o = `$clear_script 2>&1`;
+        print "Result: $o\n";
+    }
+}
+
+# --------------------------------------------------------------------------------------------
+# First, make sure the driver does not already have its nodeos running.
+# This is a very simple driver that can only run one blockchain node at a time.
+# --------------------------------------------------------------------------------------------
+
+if (-e $nodeos_pid_file) {
+    die "ERROR: nodeos seems to already be running (nodeos PID file '$nodeos_pid_file' exists). Must 'stop' before can 'start' again.\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Run cleos-driver to create the wallet and start keosd
+# --------------------------------------------------------------------------------------------
+
+print "Starting cleos-driver ...\n";
+
+$cmd = "$cleos_driver_dir/start";
+$o = `$cmd`;
+if ($? != 0) {
+    print "ERROR: cleos-driver start returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Run nodeos-tool/create to create all the files needed to run nodeos in the current dir
+# --------------------------------------------------------------------------------------------
+
+print "Running tools/nodeos-tool/create to turn current working directory '$abs_working_dir' into a nodeos instance directory ...\n";
+
+$cmd = "$nodeos_tool_dir/create";
+$o = `$cmd`;
+if ($? != 0) {
+    print "ERROR: nodeos-tool create returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Run nodeos-tool/start to start up nodeos in a child process using the
+#   chainbase/data/config/scripts in the current dir
+# --------------------------------------------------------------------------------------------
+
+print "Running tools/nodeos-tool/start to start nodeos from directory '$abs_working_dir' ...\n";
+
+$cmd = "$nodeos_tool_dir/start";
+$o = `$cmd`;
+if ($? != 0) {
+    print "ERROR: nodeos-tool start returned an error code.\n";
+    print "Output: $o\n";
+    do_stop(); # needs this here because if there's a bug in nodeos-tool start that leaves
+               #   the nodeos instance alive, we will make sure it would be terminated here.
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Boot the chain
+# --------------------------------------------------------------------------------------------
+
+sub crashed() {
+    print "ERROR: coldstart start: crashed while booting the chain (a cleos command failed)\n";
+    do_stop();
+    exit 1;
+}
+
+print "Waiting 3 seconds before booting the chain...\n";
+sleep(3);
+
+print "Booting the chain...\n";
+
+#cleos(qq|create account eosio eosio.bpay EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+#
+# Special treatment of the first account creation to detect partially initialized chain data.
+# Will assume that's it: we can just continue running it from where the chain data left off.
+# If that is NOT the case, the driver's user must call 'clear' to stop and wipe the driven blockchain clean.
+#
+$cmd = "$cleos create account eosio eosio.bpay EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV 2>&1";
+$o = `$cmd`;
+if ($? != 0) {
+    if ($o =~ /Account name already exists/) {
+        print "The first account name that we set during chain boot is already set. Will assume that an ongoing blockchain has been resumed.\n";
+        print "Blockchain driver started successfully (continuation).\n";
+        exit;
+    } else {
+        print "ERROR: coldstart start: Failed to execute: $cmd\n";
+        print "Output: $o\n";
+        do_stop();
+        exit 1;
+    }
+}
+
+crashed() if cth_cleos(qq|create account eosio eosio.msig EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.names EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.ram EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.ramfee EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.saving EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.stake EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.token EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.vpay EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio eosio.rex EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+crashed() if cth_cleos(qq|create account eosio aggsigtest EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+
+crashed() if cth_cleos(qq|set contract eosio.token ../../tools/reference-contracts/build/contracts/eosio.token/|);
+
+crashed() if cth_cleos(qq|push action eosio.token create '[ "eosio", "10000000000.0000 EOS" ]' -p eosio.token|); # @active
+crashed() if cth_cleos(qq|push action eosio.token issue '[ "eosio", "1000000000.0000 EOS", "initial issuance" ]' -p eosio|);
+
+# feature activations
+$cmd = qq|wget --method=POST --body-data='{"protocol_features_to_activate": ["0ec7e080177b2c02b278d5088611686b49d739925a92d9bfcacd7fc6b74053bd"]}' --header="Content-Type: application/json" http://127.0.0.1:8888/v1/producer/schedule_protocol_feature_activations -O - 2>&1|;
+$o = `$cmd`;
+if ($? != 0) {
+    print "ERROR: coldstart start: Failed to execute: $cmd\n";
+    print "Output: $o\n";
+    do_stop();
+    exit 1;
+}
+
+print "Waiting 3 seconds for the PREACTIVATE_FEATURE feature to take effect...\n";
+sleep(3);
+
+crashed() if cth_cleos(qq|set contract eosio ../../tools/reference-contracts/build/contracts/eosio.boot/|);
+
+# "classic" EOSIO features from the block.one tutorials
+crashed() if cth_cleos(qq|push action eosio activate '["f0af56d2c5a48d60a4a5b5c903edfb7db3a736a94ed589d0b797df33ff9d3e1d"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["2652f5f96006294109b3dd0bbde63693f55324af452b799ee137a81a905eed25"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["8ba52fe7a3956c5cd3a656a3174b931d3bb2abb45578befc59f283ecd816a405"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["ad9e3d8f650687709fd68f4b90b41f7d825a365b02c23a636cef88ac2ac00c43"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["68dcaa34c0517d19666e6b33add67351d8c5f69e999ca1e37931bc410a297428"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["e0fb64b1085cc5538970158d05a009c24e276fb94e1a0bf6a528b48fbc4ff526"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["ef43112c6543b88db2283a2e077278c315ae2c84719a8b25f25cc88565fbea99"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["4a90c00d55454dc5b059055ca213579c6ea856967712a56017487886a4d4cc0f"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["1a99a59d87e06e09ec5b028a9cbb7749b4a5ad8819004365d02dc4379a8b7241"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["4e7bf348da00a945489b2a681749eb56f5de00b900014e137ddae39f48f69d67"]' -p eosio|);
+crashed() if cth_cleos(qq|push action eosio activate '["4fca8bd82bbd181e714e283f83e1b45d95ca5af40fb89ad3977b653c448f78c2"]' -p eosio|); # WEBAUTHN_KEY
+crashed() if cth_cleos(qq|push action eosio activate '["299dcb6af692324b899b39f16d5a530a33062804e41f09dc97e9f156b4476707"]' -p eosio|);
+
+# more recent ones
+crashed() if cth_cleos(qq|push action eosio activate '["5443fcf88330c586bc0e5f3dee10e7f63c76c00249c87fe4fbf7f38c082006b4"]' -p eosio|); # BLOCKCHAIN_PARAMETERS
+
+# https://waxsweden.org/wax-testnet-antelope-upgrade/
+# "New protocol features introduced in versions 3.0 and 3.1 do not have dependencies on other protocol features or each other. You can use any order to activate them."
+crashed() if cth_cleos(qq|push action eosio activate '["d528b9f6e9693f45ed277af93474fd473ce7d831dae2180cca35d907bd10cb40"]' -p eosio|); # CONFIGURABLE_WASM_LIMITS2
+crashed() if cth_cleos(qq|push action eosio activate '["6bcb40a24e49c26d0a60513b6aeb8551d264e4717f306b81a37a5afb3b47cedc"]' -p eosio|); # CRYPTO_PRIMITIVES
+crashed() if cth_cleos(qq|push action eosio activate '["35c2186cc36f7bb4aeaf4487b36e57039ccf45a9136aa856a5d569ecca55ef2b"]' -p eosio|); # GET_BLOCK_NUM
+crashed() if cth_cleos(qq|push action eosio activate '["bcd2a26394b36614fd4894241d3c451ab0f6fd110958c3423073621a70826e99"]' -p eosio|); # GET_CODE_HASH
+crashed() if cth_cleos(qq|push action eosio activate '["c3a6138c5061cf291310887c0b5c71fcaffeab90d5deb50d3b9e687cead45071"]' -p eosio|); # ACTION_RETURN_VALUE
+
+print "Waiting 3 seconds for feature activations to be digested...\n";
+sleep(3);
+
+# Deal with eosio.system bullshit where you have to retry setting the system contract because of transaction time randomly being exceeded.
+my $set_system_contract_successful = 0;
+for (my $i = 1; $i <= 10; $i++) {
+    print "Attempting to set the system contract...\n";
+    my $cmd = "$cleos set contract eosio ../../tools/reference-contracts/build/contracts/eosio.system/ 2>&1";
+    my $o = `$cmd`;
+    if ($? != 0) {
+        if ($o =~ /exceeded by/ || $o =~ /tx_cpu_usage_exceeded/ || $o =~ /Transaction exceeded the current CPU usage limit imposed on the transaction/ || $o =~ /transaction was executing for too long/) {
+            print "Got a 'CPU usage exceeded' error while trying to set the system contract (try $i of 10)...\n";
+            sleep(1);
+        } else {
+            print "ERROR: Failed to execute: $cmd\n";
+            print "Output: $o\n";
+            do_stop();
+            exit 1;
+        }
+    } else {
+        print "System contract set successfully.\n";
+        $set_system_contract_successful = 1;
+        last;
+    }
+}
+
+crashed() if cth_cleos(qq|push action eosio init '["0", "4,EOS"]' -p eosio|); # @active
+
+# --------------------------------------------------------------------------------------------
+# Elect the BPs
+# --------------------------------------------------------------------------------------------
+
+print "Electing BPs...\n";
+
+crashed() if cth_cleos(qq|system newaccount eosio bpa EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "100000000.0000 EOS" --stake-cpu "100000000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpb EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpc EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpd EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpe EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpf EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpg EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bph EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpi EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpj EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpk EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpl EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpm EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpn EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpo EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpp EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpq EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpr EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bps EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpt EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+crashed() if cth_cleos(qq|system newaccount eosio bpu EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1000.0000 EOS" --stake-cpu "1000.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+
+crashed() if cth_cleos(qq|system regproducer bpa EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpb EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpc EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpd EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpe EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpf EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpg EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bph EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpi EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpj EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpk EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpl EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpm EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpn EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpo EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpp EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpq EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpr EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bps EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpt EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+crashed() if cth_cleos(qq|system regproducer bpu EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV "" 0|);
+
+crashed() if cth_cleos(qq|system voteproducer prods bpa ["bpa","bpb","bpc","bpd","bpe","bpf","bpg","bph","bpi","bpj","bpk","bpl","bpm","bpn","bpo","bpp","bpq","bpr","bps","bpt","bpu"] -p bpa|);
+
+# --------------------------------------------------------------------------------------------
+# And we *should* be done.
+# Try to get a happy chain.log message, otherwise stop the node and fail.
+# --------------------------------------------------------------------------------------------
+
+print "Waiting for chain.log tail to show signs of a fully started blockchain (up to 30 seconds)...\n";
+
+my $start_successful = 0;
+
+my $max_tries_bp = 30;
+
+for (my $i = 1; $i <= $max_tries_bp; $i++) {
+    print "Try $i/$max_tries_bp: ";
+    if (open(my $log_fh, '<', 'chain.log')) {
+        my @lines = <$log_fh>;
+        close($log_fh);
+        my $last_line = pop @lines;
+        if ($last_line =~ /Produced block/ && $last_line =~ /signed by bp/) {
+            print "Found a 'block produced' message by an elected BP.\n";
+            $start_successful = 1;
+            last;
+        } else {
+            print "BP message not found.\n";
+        }
+    } else {
+        print "Can't open 'chain.log': $!\n";
+    }
+    sleep(1);
+}
+
+if (! $start_successful) {
+    print "ERROR: nodeos does not seem to have been properly started and set-up. Stopping nodeos and failing start.\n";
+    do_stop();
+    exit 1;
+}
+
+print "Blockchain driver started successfully (full start).\n";

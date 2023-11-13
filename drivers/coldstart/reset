@@ -1,0 +1,12 @@
+#!/bin/bash
+
+cd "$(dirname "$0")"
+if ! cd "../../local/coldstart"; then
+  echo "coldstart reset: cannot change directory to local/coldstart; assuming no running coldstart session to reset"
+  exit 0
+fi
+
+# just go nuclear
+pkill -f nodeos
+cd ..
+rm -rf coldstart

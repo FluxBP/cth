@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# make sure the current working dir is the driver's working dir
+# at ../../local/coldstart/
+cd "$(dirname "$0")"
+if ! cd "../../local/coldstart"; then
+  echo "coldstart stop: cannot change directory to local/coldstart; assuming no coldstart nodeos to stop"
+  exit 0
+fi
+
+if [ -f "./nodeos.pid" ]; then
+pid=`cat "./nodeos.pid"`
+echo $pid
+kill $pid
+rm -r "./nodeos.pid"
+echo -ne "Stoping nodeos.."
+while true; do
+[ ! -d "/proc/$pid/fd" ] && break
+echo -ne "."
+sleep 1
+done
+echo -ne "\nnodeos stopped.\n"
+fi

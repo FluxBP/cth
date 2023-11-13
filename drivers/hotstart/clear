@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# will stop and clear ALL of the hotstart instances under /local/hotstart/instances
+
+# This just forwards all of the arguments it receives to 'clear', and appends
+#   '--all' to the list of switches so that ALL instances will be cleared.
+
+# first, be at this script's directory
+cd "$(dirname "$0")"
+
+# Append the --all argument to the command-line arguments
+args=("$@" "--all")
+
+# Execute the 'stop' script with the modified arguments
+./clearinstance "${args[@]}"

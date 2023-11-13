@@ -1,0 +1,236 @@
+#!/usr/bin/perl
+
+# --------------------------------------------------------------------------------------------
+# nodeos-tool start
+#
+# This script is typically invoked by test drivers to start nodeos from a directory where
+#   nodeos-tool/create was invoked in to set it up beforehand.
+# It only exits when nodeos is ready to service any and all cleos requests via its HTTP port
+#   (or when an error is detected).
+# --------------------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+use Cwd;
+use FindBin '$RealBin';
+use Time::HiRes qw(sleep);
+
+my $nodeos_pid_file = "nodeos.pid";
+
+my $running_nodeos_pid;
+
+my $working_dir = getcwd();
+
+print "nodeos-tool start: working at $working_dir to spawn a nodeos.\n";
+
+my $cmd;
+my $o;
+my $max_tries;
+
+my $SLEEP_INTERVAL = 1;
+
+# --------------------------------------------------------------------------------------------
+# Sleep a while and print current time
+# --------------------------------------------------------------------------------------------
+
+sub time_sleep() {
+    my $t;
+    $t = `date '+%Y-%m-%d %H:%M:%S.%3N'`;
+    chomp($t);
+    print "$t: sleeping for $SLEEP_INTERVAL second(s)...\n";
+    sleep($SLEEP_INTERVAL);
+    $t = `date '+%Y-%m-%d %H:%M:%S.%3N'`;
+    print "$t: sleeping done.\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Detect dumb errors beforehand (helps with having clearer error messages) and extract the
+#   P2P and HTTP ports from the config.ini and print them here as a helpful reminder of
+#   what ports exactly this nodeos instance that we are starting will make available.
+# --------------------------------------------------------------------------------------------
+
+my $errors = 0;
+
+if (! -e 'genesis.json') { print "ERROR: nodeos-tool start: genesis.json file doesn't exist\n"; $errors = 1; }
+if (! -e 'config.ini') { print "ERROR: nodeos-tool start: config.ini file doesn't exist\n"; $errors = 1; }
+if (! -e 'start_nodeos.sh') { print "ERROR: nodeos-tool start: start_nodeos.sh file doesn't exist\n"; $errors = 1; }
+if (! -x 'start_nodeos.sh') { print "ERROR: nodeos-tool start: start_nodeos.sh file isn't executable\n"; $errors = 1; }
+
+if ($errors) {
+   print "ERROR: nodeos-tool start: FATAL ERROR -- we don't have the necessary files in the current directory to start a nodeos process.\n";
+   exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Extract the ports from the config.ini and print them here as a helpful reminder of
+#   what ports exactly this nodeos instance that we are starting will make available.
+# --------------------------------------------------------------------------------------------
+
+# Use backticks to run grep and awk commands to extract the port numbers
+my $http_port_number = `grep -E '^http-server-address' config.ini | awk -F '[: ]+' '{print \$4}'`;
+my $p2p_port_number  = `grep -E '^p2p-listen-endpoint' config.ini | awk -F '[: ]+' '{print \$4}'`;
+
+# Remove trailing whitespace and newline characters
+chomp($http_port_number);
+chomp($p2p_port_number);
+
+# Check if port numbers were extracted
+if ($http_port_number && $p2p_port_number) {
+    print "nodeos-tool start: HTTP and P2P port configuration in the config.ini looks correct.\n";
+    print "  HTTP port: $http_port_number\n";
+    print "  P2P port:  $p2p_port_number\n";
+} else {
+    print "ERROR: nodeos-tool start: HTTP and P2P port numbers not found in the config file.\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# We will be using cleos to test if and when the nodeos process has started successfully
+# --------------------------------------------------------------------------------------------
+
+use lib "$RealBin/../../tools/cth-goodies";
+use CthGoodies;
+
+my $err = cth_set_cleos_provider('cleos-driver');
+if ($err) {
+    die "ERROR: nodeos-tool start: cth_set_cleos_provider failed for some reason.\n";
+}
+
+if ($http_port_number != 8888) {
+    my $url_string = "http://127.0.0.1:$http_port_number";
+    cth_set_cleos_url($url_string);
+    print "nodeos-tool start: configured cleos URL to: '${url_string}'\n";
+} else {
+    print "nodeos-tool start: not setting a cleos URL for cleos-driver since it's using the default port (8888).\n";
+}
+
+# to help with debugging
+#cth_set_cleos_args("--print-request --print-response --http-verbose --http-trace");
+
+# --------------------------------------------------------------------------------------------
+# Spawn nodeos in a child process
+# --------------------------------------------------------------------------------------------
+
+$cmd = './start_nodeos.sh';
+
+print "nodeos-tool start: starting nodeos with: $cmd\n";
+
+$o = `$cmd 2>&1`;
+
+if ($? != 0) {
+    print "ERROR: nodeos-tool start: failed to start nodeos with '$cmd', output: $o\n";
+    exit 1;
+}
+
+print "nodeos-tool start: trying to read nodeos PID from the '$nodeos_pid_file' file ...\n";
+
+{
+    local $/;
+    open my $file_handle, '<', "$nodeos_pid_file" or die "ERROR: nodeos-tool: Could not open file '$nodeos_pid_file': $!";
+    $running_nodeos_pid = <$file_handle>;
+    close $file_handle;
+    $running_nodeos_pid =~ s/\R\z//;
+}
+
+print "nodeos-tool start: read nodeos PID: $running_nodeos_pid\n";
+
+# --------------------------------------------------------------------------------------------
+# Check that the nodeos process is actually there and sync with its warm-up delay
+# --------------------------------------------------------------------------------------------
+
+# To test nodeos process dying quickly
+#`kill -9 $running_nodeos_pid`;
+
+# Sleep a tiny bit before checking if nodeos is alive, helps to diagnose insta-deaths
+#   sooner (instead of cleos connection exception later in the test). We have to wait
+#   for the get_info and newaccount tests to be successful anyway...
+time_sleep();
+
+if (kill(0, $running_nodeos_pid)) {
+    print "nodeos-tool start: it *seems* that nodeos is started successfully; nodeos log: $working_dir/chain.log\n";
+} else {
+    print "ERROR: nodeos-tool start: nodeos failed to start, as PID $running_nodeos_pid doesn't seem to be alive. The chain.log was:\n";
+    print "\n==== chain.log start =====\n";
+    print `cat chain.log`;
+    print "\n==== chain.log end =====\n";
+    exit 1;
+}
+
+#
+# Wait until we can make get_info work on the nodeos process we started
+#
+
+print "nodeos-tool start: will loop for a while, trying to get nodeos to answer to 'get info' ...)\n";
+
+$max_tries = 30;
+
+while (1) {
+    my $out = cth_cleos_pipe("get info");
+    if (defined $out && $out =~ /chain_id/) {
+        # seems like cleos get info is working on our nodeos instance
+        print "nodeos-tool start: nodeos responded to 'cleos get info'\n";
+        last;
+    }
+    # did not find it yet, sleep a bit and retry (or give up if too many retries)
+    $max_tries--;
+    if ($max_tries <= 0) {
+        print "ERROR: nodeos-tool start: nodeos is taking too long to service 'cleos get info', so assuming it is dead. The chain.log was:\n";
+        print "\n==== chain.log start =====\n";
+        print `cat chain.log`;
+        print "\n==== chain.log end =====\n";
+        exit 1;
+    }
+    time_sleep();
+}
+
+#
+# get_info is working, but to avoid "expired transaction" errors we are going
+#   to loop trying to get an actual transaction to complete. It will be a simple
+#   system newaccount nodeostoolxx (dummy account).
+#
+
+print "nodeos-tool: will loop for a while, trying to get nodeos to create a dummy account (to avoid e.g. 'Expired Transaction' errors) ...\n";
+
+$max_tries = 30;
+
+srand();
+
+while (1) {
+    #my $out = cth_cleos_pipe(qq|system newaccount eosio nodeostoolxx EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1.0000 EOS" --stake-cpu "1.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+    #my $out = cth_cleos_pipe(qq|system delegatebw eosio eosio "1.0000 EOS" "1.0000 EOS"|);
+    #cth_cleos_pipe(qq|get account eosio|);
+
+    # Come up with a random throwaway account name to create, to avoid problems where the
+    #   chainbase we are starting was already started by this script and thus will have
+    #   one or more of those .cth garbage names.
+
+    my @characters = ('a'..'z', 1..5);
+    my $randomname = "";
+    for my $i (1..8) {
+        my $random_char = $characters[int(rand(scalar @characters))];
+        $randomname .= $random_char;
+    }
+    $randomname .= "xcth";
+
+    # one of these will have to succeed
+    my $out1 = cth_cleos_pipe(qq|create account eosio $randomname EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV|);
+    my $out2 = cth_cleos_pipe(qq|system newaccount eosio $randomname EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-net "1.0000 EOS" --stake-cpu "1.0000 EOS" --buy-ram-kbytes 8 --transfer|);
+
+    if (defined $out1 || defined $out2) {
+        # seems like our nodeos instance is accepting transactions
+        print "nodeos-tool start: nodeos seems to have executed a transaction successfully.\n";
+        last;
+    }
+    # did not accept a transaction yet, sleep a bit and retry (or give up if too many retries)
+    $max_tries--;
+    if ($max_tries <= 0) {
+        print "ERROR: nodeos-tool start: nodeos is taking too long to accept a transaction, so assuming it is dead. The chain.log was:\n";
+        print "\n==== chain.log start =====\n";
+        print `cat chain.log`;
+        print "\n==== chain.log end =====\n";
+        exit 1;
+    }
+    time_sleep();
+}
+
+print "nodeos-tool: nodeos started and booted successfully, and is ready for use.\n";

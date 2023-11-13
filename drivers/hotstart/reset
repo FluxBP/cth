@@ -1,0 +1,12 @@
+#!/bin/bash
+
+cd "$(dirname "$0")"
+if ! cd "../../local/hotstart"; then
+  echo "hotstart reset: cannot change directory to local/hotstart; assuming no running hotstart session to reset"
+  exit 0
+fi
+
+# just go nuclear
+pkill -f nodeos
+rm -rf instances
+rm -rf lock_file

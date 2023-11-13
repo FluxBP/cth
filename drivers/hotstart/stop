@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# will stop ALL hotstart instances under /local/hotstart/instances
+
+# This just forwards all of the arguments it receives to 'stopinstance', and
+#   appends '--all' to the list of switches so that stop will stop ALL
+#   instances.
+
+# first, be at this script's directory
+cd "$(dirname "$0")"
+
+# Append the --all argument to the command-line arguments
+args=("$@" "--all")
+
+# Execute the 'stop' script with the modified arguments
+./stopinstance "${args[@]}"

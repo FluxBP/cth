@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# hotstart: Given a test/instance label, find the test directory (named after
+#  the instance's nodeos p2p port number) that has that label
+# All instances are under /local/hotstart/instances
+#
+# Output text is without newline to facilitate parsing
+# Trying to redirect all stderr messages to /dev/null, as this program output
+#   is for machine consumption
+#
+# Outputs -3 and returns error (3) if no command-line argument given or it
+#  is empty
+# Outputs -2 and returns error (2) if /local/hotstart/instances doesn't exist
+# Outputs -1 and returns error (1) if instance with label could not be located
+# Prints the positive port number and returns OK (0) if it is found
+
+# Try to cd to /loca/hotstart/instances
+cd "$(dirname "$0")"
+if ! cd "../../local/hotstart/instances" 2>/dev/null; then
+  # hotstart driver nodeos instances directory not found
+  echo -n "-2"
+  exit 1
+fi
+
+# Check if at least one argument is provided
+if [ $# -lt 1 ]; then
+    # empty argument
+    echo -n "-3"
+    exit 1
+fi
+
+# Get the first argument
+ilabel="$1"
+
+# Check if the first argument is empty
+if [ -z "$ilabel" ]; then
+    # empty argument
+    echo -n "-3"
+    exit 1
+fi
+
+# Loop through immediate subdirectories of the current directory
+for dir in */; do
+  dir="${dir%/}"  # Remove trailing slash
+  label_file="$dir/label"  # Path to the "label" file in the current directory
+
+  # Check if the "label" file exists in the current directory
+  if [ -f "$label_file" ]; then
+    read -r contents < "$label_file" 2>/dev/null
+
+    # TODO: would be more robust perhaps if "contents" was stripped
+    #  of ' ', \n, \r, \t here but 'read' seems to be doing the right
+    #  thing already
+
+    # Compare the contents with the $ilabel variable
+    if [ "$contents" = "$ilabel" ]; then
+       echo -n "$dir"
+       exit 0
+    fi
+  fi
+done
+
+# instance not found
+echo -n "-1"
+exit 1

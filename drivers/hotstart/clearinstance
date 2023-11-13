@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# will stop and clear one of the hotstart instances under /local/hotstart/instances
+
+# This just forwards all of the arguments it receives to 'stop', and appends
+#   '--clear' to the list of switches so that stop will *also* rm -rf the instance.
+
+# first, be at this script's directory
+cd "$(dirname "$0")"
+
+# Append the --clear argument to the command-line arguments
+args=("$@" "--clear")
+
+# Execute the 'stop' script with the modified arguments
+./stopinstance "${args[@]}"

@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+
+
+// ---------------------------------------------------------------------------------------
+// hello-world example Antelope blockchain test
+// ---------------------------------------------------------------------------------------
+
+
+//
+// Load the JS test functions library
+//
+require('CthTestLib');
+
+
+//
+// Enabling this will print everything that's going on at the DoHTestDriver library
+// for example, this, will log all cleos calls and all cleos output
+//
+//cth_debug_trace(true);
+
+
+//
+// Demo the args parser
+//
+const switchesStr = '';
+const optionsStr = '';
+const [switches, options] = cth_standard_args_parser(switchesStr, optionsStr);
+console.log('Switches:', switches);
+console.log('Options:', options);
+
+
+//
+// Init test (using the Fixtures feature)
+// This is what launches a nodeos in the localhost
+//
+fixtureInit();
+
+
+//
+// Read the ABI of the 'eosio' account in the running nodeos and dump it
+//
+console.log();
+console.log("**************************************************************************************************");
+console.log();
+try {
+    // this works if we can cleos into a running nodeos instance in the localhost that is running a
+    //   fully-deployed Antelope blockchain, which shows that the hotstart driver is working.
+    const eosio = getProxyForContract(`eosio`);
+    console.log("eosio account's ABI:\n" + eosio.__abiString);
+} catch (error) {
+    // interesting note: when you use fixtureRun(), instead of doing that blob of javascript in the try block above,
+    //  you get exception handling for free. since we didn't, here we have to catch() otherwise we get a dangling
+    //  nodeos (because dohTest.js::finish() or dohTestFixture.js::fixtureFinish() must always be called before exiting).
+    fixtureFinish(error);
+}
+console.log();
+console.log("**************************************************************************************************");
+console.log();
+
+
+//
+// Stop nodeos and clean up
+//
+fixtureFinish();

@@ -1,0 +1,51 @@
+#!/usr/bin/perl
+
+$| = 1;
+
+use strict;
+use warnings;
+use FindBin qw($RealBin);
+use lib "$RealBin/../../tools/cth-utils";
+use CthUtils;
+
+my $driver = "coldstart";
+my $dir = "../../tools/reference-contracts";
+my $file = "build.sh";
+my $build_success = "BUILD_SUCCESS";
+
+# go to driver dir
+chdir_for_sure($RealBin);
+
+# check that the tools/reference-contracts submodule is there
+print "$driver: Checking for reference-contracts at $dir\n";
+if (! -e "$dir/$file") {
+    print "ERROR: $driver: Antelope.io reference-contracts not found in the expected tools directory path.\n";
+    exit 1;
+}
+
+# go to the tools/reference-contracts directory
+print "$driver: Directory found.\n";
+chdir_for_sure($dir);
+
+# skip building if the build directory already exists and it has a magic BUILD_SUCCESS file in it
+if (-e "build/$build_success") {
+    print "$driver: Antelope.io reference-contracts seems to be already built (build/$build_success marker file found). Skipping (re)build.\n";
+    exit 0;
+}
+
+# run build
+print "$driver: Running reference-contracts build script...\n";
+system("./" . "$file");
+
+# Check the exit status of the build script
+my $ret = $?;
+print "$driver: Contract build script raw exit code (must be zero): $ret\n";
+if ($ret == 0) {
+    `touch build/$build_success`;
+    print "$driver: Reference contracts built successfully\n";
+} else {
+    my $exit_status = $ret >> 8;
+    print "ERROR: $driver: Reference contracts build failed with error code: $exit_status\n";
+    `rm -f build/$build_success`;
+    exit 1;
+}

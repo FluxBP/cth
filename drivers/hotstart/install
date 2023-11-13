@@ -1,0 +1,167 @@
+#!/usr/bin/perl
+
+# --------------------------------------------------------------------------------------------
+# Driver: hotstart
+# Operation: install
+#
+# start coldstart to generate a nodeos data directory directory and save it on /local/
+#   to start multiple hotstart instances later.
+# --------------------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+use Scalar::Util qw(looks_like_number);
+use FindBin qw($RealBin);
+use lib "$RealBin/../../tools/cth-utils";
+use CthUtils;
+
+$| = 1;  # Turn on auto-flush for STDOUT (Perl doesn't do this by default)
+
+# Relative to this script's location, might have to create/recreate
+my $working_dir          = "../../local/hotstart";
+my $template_dir         = "$working_dir/nodeos-template";
+
+# All are relative to this script's location and must already exist
+my $coldstart_dir        = "../coldstart";
+my $source_template_dir  = "../../local/coldstart";
+
+my $verbose = 1;
+
+my $cmd;
+my $o;
+
+# --------------------------------------------------------------------------------------------
+# We have to force the working directory to where the driver script is.
+# Also resolve dirs that already should exist to absolute locations for better prints.
+# --------------------------------------------------------------------------------------------
+
+chdir_for_sure($RealBin);
+
+$coldstart_dir        = absolute($coldstart_dir, CthUtils::ABSOLUTE_MAY_NOT_EXIST);
+print "hotstart install: ensuring coldstart_dir exists ('$coldstart_dir') ...\n";
+$coldstart_dir        = absolute($coldstart_dir, CthUtils::ABSOLUTE_MUST_EXIST);
+
+$source_template_dir  = absolute($source_template_dir, CthUtils::ABSOLUTE_MAY_NOT_EXIST);
+print "hotstart install: ensuring source_template_dir exists ('$source_template_dir') ...\n";
+$source_template_dir  = absolute($source_template_dir, CthUtils::ABSOLUTE_MUST_EXIST);
+
+# --------------------------------------------------------------------------------------------
+# Clear and start the backing coldstart driver.
+# --------------------------------------------------------------------------------------------
+
+print "hotstart install: Clearing coldstart ...\n";
+
+$cmd = "$coldstart_dir/clear";
+$o = `$cmd 2>&1`;
+if ($? != 0) {
+    print "ERROR: hotstart install: coldstart clear returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+}
+
+print "hotstart install: Starting coldstart...\n";
+
+$cmd = "$coldstart_dir/start";
+$o = `$cmd 2>&1`;
+if ($? != 0) {
+    print "ERROR: hotstart install: coldstart start returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Wait a bit (probably not needed)
+# --------------------------------------------------------------------------------------------
+
+sleep(3);
+
+# --------------------------------------------------------------------------------------------
+# Stop coldstart
+# --------------------------------------------------------------------------------------------
+
+print "hotstart install: Stopping coldstart ...\n";
+
+$cmd = "$coldstart_dir/stop";
+$o = `$cmd 2>&1`;
+if ($? != 0) {
+    print "ERROR: hotstart install: coldstart stop returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Wait a bit (probably not needed)
+# --------------------------------------------------------------------------------------------
+
+sleep(3);
+
+# --------------------------------------------------------------------------------------------
+# local/coldstart/ now contains an Antelope blockchain with system accounts and contracts
+#   deployed. coldstart's nodeos is stopped, so we can copy that entire data directory over
+#   to local/hotstart/nodeos-template/, which we can use for hotstart tests to start from.
+# --------------------------------------------------------------------------------------------
+
+#
+# Create entire local/hotstart/nodeos-template/ path
+# This creates the $working_dir indirectly
+#
+my $abs_template_dir = absolute($template_dir, CthUtils::ABSOLUTE_ENSURE_CREATE);
+
+#
+# Resolve the $working_dir as well now that we know it exists
+#
+$working_dir = absolute($working_dir, CthUtils::ABSOLUTE_MUST_EXIST);
+
+#
+# Actually rm -rf the template dir itself because we will copy over the new content
+#
+print "Deleting $abs_template_dir/* (if it exists)\n";
+print `rm -rf $abs_template_dir/*`;
+
+#
+# Copy the new content
+#
+print "Copying (cp -r) $source_template_dir/* to $abs_template_dir\n";
+print `cp -r $source_template_dir/* $abs_template_dir`;
+
+if ($? != 0) {
+    die "ERROR: hotstart install: Failed to copy nodeos data directory over from local/coldstart/* : $!\n";
+}
+
+#
+# Save an ls -lR of the nodeos state dir template in the install.log
+#
+print "-----------------------------------------------------------------------------------\n";
+print `ls -lR $abs_template_dir`;
+print "-----------------------------------------------------------------------------------\n";
+
+print "hotstart install: quick-start nodeos state generated and installed successfully.\n";
+
+# --------------------------------------------------------------------------------------------
+# Create the global lock file (used for instance-dir creation synchronization).
+# Can't create this before the local/hostart directory is created, so do it here.
+# --------------------------------------------------------------------------------------------
+
+if (system("touch $working_dir/lock_file") != 0) {
+    die "ERROR: failed to create global lock file '$working_dir/lock_file'\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Clear coldstart
+# --------------------------------------------------------------------------------------------
+
+print "hotstart install: Clearing coldstart (finishing)...\n";
+
+$cmd = "$coldstart_dir/clear";
+$o = `$cmd 2>&1`;
+if ($? != 0) {
+    print "ERROR: hotstart install: coldstart clear returned an error code.\n";
+    print "Output: $o\n";
+    exit 1;
+}
+
+# --------------------------------------------------------------------------------------------
+# Done
+# --------------------------------------------------------------------------------------------
+
+print "hotstart install: Installation finished successfully.\n";

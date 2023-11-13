@@ -1,0 +1,1 @@
+`nodeos-tool` is a cth tool that manages everything related to initializing the current working directory to be a nodeos run directory (`create`) and to start nodeos from such a created/initialized directory (`start`).

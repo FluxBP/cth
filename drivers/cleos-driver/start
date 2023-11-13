@@ -1,0 +1,292 @@
+#!/usr/bin/perl
+
+# --------------------------------------------------------------------------------------------
+# Driver: cleos-driver
+# Operation: start
+#
+# Wallet setup
+# - Start keosd on the current directory, logging the PID on keosd.pid
+# - Create a default wallet, pipe the password to a file
+# - Open and unlock the default wallet (use provided password)
+# - Add development key to the wallet
+#
+# If already created/opened, just succeeds.
+# --------------------------------------------------------------------------------------------
+
+use strict;
+use warnings;
+use Time::HiRes qw(sleep);
+use Scalar::Util qw(looks_like_number);
+use FindBin '$RealBin';
+use lib "$RealBin/../../tools/cth-utils";
+use CthUtils;
+
+$| = 1;  # Turn on auto-flush for STDOUT (Perl doesn't do this by default)
+
+my $wallet_dir = "../../local/cleos-driver";
+
+my $verbose = 1;
+
+my $keosd_log = "keosd.log";
+
+my $keosd_pid_file = "keosd.pid";
+
+my $wallet_password_file = "default.wallet.password";
+
+my $cmd;
+my $o;
+
+# --------------------------------------------------------------------------------------------
+# The wallet_dir is relative to the script's directory. Make sure to create it, then find it,
+#   then change to it.
+# --------------------------------------------------------------------------------------------
+
+my $abs_wallet_dir = absolute("$RealBin/$wallet_dir", CthUtils::ABSOLUTE_ENSURE_CREATE);
+
+chdir_for_sure($abs_wallet_dir);
+
+my $cleos = "cleos --wallet-url unix://$abs_wallet_dir/keosd.sock";
+
+# --------------------------------------------------------------------------------------------
+# Utils
+# --------------------------------------------------------------------------------------------
+
+sub write_to_file {
+    my $file_path = shift;
+    if (!defined $file_path) { die "ERROR: write_to_file: undefined file_path"; }
+    my $string = shift;
+    if (!defined $string) { die "ERROR: write_to_file: undefined string"; }
+    open(my $file_handle, '>', $file_path) or die "ERROR: write_to_file: Could not open file '$file_path': $!";
+    print $file_handle $string;
+    close($file_handle);
+}
+
+sub read_from_file {
+    my $file_path = shift;
+    if (!defined $file_path) { die "ERROR: read_from_file: undefined file_path"; }
+    local $/;
+    open my $file_handle, '<', $file_path or die "ERROR: read_from_file: Could not open file '$file_path': $!";
+    my $string = <$file_handle>;
+    close $file_handle;
+    $string =~ s/\R\z//;
+    return $string;
+}
+
+# Tries to find a keosd that would have been started from this driver directory (and thous would be
+#   reachable by cleos by connecting cleos to the keosd.sock that is in this driver directory).
+sub check_keosd_running {
+    my $iters = shift; # how many 100ms interations to run
+    if (!defined $iters) { die "ERROR: check_keosd_running: undefined iters"; }
+
+    my $kpid;
+
+    for (my $i = 0; $i < $iters; $i++) {
+        $o = `ps -efww | grep \"keosd --wallet-dir $abs_wallet_dir --data-dir $abs_wallet_dir\" | grep -v grep | awk '{print \$2}'`;
+        chomp($o);
+        if (looks_like_number($o)) {
+            $kpid = $o;
+            if ($verbose) { print "Found keosd running as PID $kpid\n"; }
+            last;
+        }
+        sleep(0.1);
+    }
+
+    # Check that keosd is running
+
+    if (!defined $kpid) {
+        return "Cannot find keosd process.\n";
+    } else {
+        if (kill 0, $kpid) {
+            my $process_name = `ps -p $kpid -o comm=`;
+            chomp($process_name);
+            if ($process_name ne 'keosd') {
+                return "Process $kpid does not seem to be keosd.\n";
+            }
+        } else {
+            return "Process $kpid not found.\n";
+        }
+    }
+
+    return $kpid; # number return is the PID we found
+}
+
+# --------------------------------------------------------------------------------------------
+# Wallet setup
+# --------------------------------------------------------------------------------------------
+
+# Check that cleos and keosd exist in the system's PATH
+
+my $no_client = 0;
+
+$o = `which cleos`;
+if ($? != 0) {
+    print "cleos not found in the system's PATH.\n";
+    $no_client = 1;
+} else {
+    if ($verbose) { print "cleos found: $o"; }
+}
+
+$o = `which keosd`;
+if ($? != 0) {
+    print "keosd not found in the system's PATH.\n";
+    $no_client = 1;
+} else {
+    if ($verbose) { print "keosd found: $o"; }
+}
+
+if ($no_client) {
+    print "ERROR: Cannot find wallet back-end programs. Leap must be installed.\n";
+    exit 1;
+}
+
+# IF proper keosd not already running, fork this process to start a keosd instance that has
+#   the default.wallet file in the same directory as the driver.
+
+my $running_keosd_pid = check_keosd_running(1);
+
+if (looks_like_number($running_keosd_pid)) {
+
+    # NEW: If we found a running keosd process that points to the right working directory, then assume
+    #      that everything is correct. Don't try to do anything else. There should be no need to unlock
+    #      the wallet, since we changed to configuring keosd to keep wallets open "forever".
+    print "cleos-driver: 'start' success, keosd seemed to be already running on $abs_wallet_dir as PID $running_keosd_pid.\n";
+    exit 0;
+
+} else {
+
+    my $pid = fork();
+    die "Failed to fork: $!" unless defined $pid;
+
+    if ($pid) {
+        if ($verbose) {
+            print "Trying to start keosd in a child process (log file: $keosd_log).\n";
+            print "keosd's wallet directory will be cleos-driver's current directory.\n";
+        }
+    } else {
+        # Run keosd while redirecting all of its output to keosd.log
+        if (open(STDOUT, '>>', $keosd_log)) {
+            open(STDERR, '>>&', \*STDOUT);
+            # Unlock timeout is 1 year, so we don't need to be unlocking it again after it is unlocked once
+            my $keosd_cmd = "keosd --wallet-dir \"$abs_wallet_dir\" --data-dir \"$abs_wallet_dir\" --unlock-timeout 31536000";
+            if ($verbose) { print "Running keosd with: $keosd_cmd\n"; }
+            $o = `$keosd_cmd`;
+            if ($? != 0) {
+                my $exit_code = $? >> 8;
+                my $error_message = strerror($exit_code);
+                print "ERROR: Command failed with exit code $exit_code: $error_message\n";
+            }
+            close(STDOUT);
+        } else {
+            die "ERROR: Cannot try to run keosd: failed to redirect STDOUT: $!";
+        }
+        exit;
+    }
+
+    # Wait for keosd to start up (up to 3 seconds)
+    $running_keosd_pid = check_keosd_running(30);
+
+    if (looks_like_number($running_keosd_pid)) {
+        write_to_file($keosd_pid_file, $running_keosd_pid);
+    }
+}
+
+# Create the wallet file
+
+my $wallet_files_exist = 0;
+
+if (-e "$abs_wallet_dir/default.wallet") {
+    if ($verbose) { print "File '$abs_wallet_dir/default.wallet' already exists.\n"; }
+    $wallet_files_exist = 1;
+}
+
+if (-e "$abs_wallet_dir/default.wallet.password") {
+    if ($verbose) { print "File '$abs_wallet_dir/default.wallet.password' already exists.\n"; }
+    $wallet_files_exist = 1;
+}
+
+if ($wallet_files_exist) {
+
+    if ($verbose) { print "One or more of the wallet file or wallet file password exists; Thus, will not attempt to recreate the wallet. Will assume this is OK and move on.\n"; }
+
+} else {
+
+    $cmd = "$cleos wallet create -f \"$abs_wallet_dir/$wallet_password_file\"";
+
+    if ($verbose) {
+        print "Creating wallet $abs_wallet_dir/default.wallet\n";
+        print "Command: $cmd\n";
+    }
+
+    $o = `$cmd 2>&1`;
+    if ($? != 0) {
+        if ($o =~ /Error 3120001: Wallet already exists/) {
+            if ($verbose) { print "Wallet file default.wallet already exists. We will assume this is OK and move on.\n"; }
+        } else {
+            print "Result: $o\n";
+            die "ERROR: Can't create wallet.\n";
+        }
+    }
+}
+
+# Open the wallet
+
+$cmd = "$cleos wallet open 2>&1";
+
+if ($verbose) {
+    print "Opening wallet $abs_wallet_dir/default.wallet\n";
+    print "Command: $cmd\n";
+}
+
+$o = `$cmd`;
+if ($? != 0) {
+    print "Result: $o\n";
+    die "ERROR: Can't open wallet.\n";
+}
+
+# Unlock the wallet
+
+my $wallet_password = read_from_file($wallet_password_file);
+
+if ($wallet_password eq '') {
+    die "ERROR: Read wallet password from '$wallet_password_file' but it's empty. Password lost; can't unlock wallet.\n";
+}
+
+$cmd = "$cleos wallet unlock --password=$wallet_password 2>&1";
+
+if ($verbose) {
+    print "Unlocking wallet $abs_wallet_dir/default.wallet\n";
+    print "Command: $cmd\n";
+}
+
+$o = `$cmd`;
+if ($? != 0) {
+    if ($o =~ /Error 3120007: Already unlocked/) {
+        if ($verbose) { print "Wallet is already unlocked.\n"; }
+    } else {
+        print "Result: $o\n";
+        die "ERROR: Can't unlock wallet.\n";
+    }
+}
+
+# Store the well-known EOSIO "developer key" in the wallet
+# This is the key that we use for everything
+# The public key is EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV that is used below
+
+$cmd = "$cleos wallet import --private-key=5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3 2>&1";
+
+if ($verbose) {
+    print "Storing developer key in wallet $abs_wallet_dir/default.wallet\n";
+    print "Command: $cmd\n";
+}
+
+$o = `$cmd`;
+if ($? != 0) {
+    if ($o =~ /Error 3120008: Key already exists/) {
+        if ($verbose) { print "Developer key was already stored in the wallet.\n"; }
+    } else {
+        print "Result: $o\n";
+        die "ERROR: Can't store the developer key in the driver's wallet.\n";
+    }
+}
+
+print "cleos-driver: 'start' success, keosd seems to be running and wallet seems configured, opened and unlocked.\n";

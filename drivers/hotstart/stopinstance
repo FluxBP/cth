@@ -1,0 +1,153 @@
+#!/bin/bash
+
+# Function to stop and clear an instance
+stop_and_clear_instance() {
+  local port="$1"
+  echo "hotstart stop: instance p2p-port (dir): $port"
+
+  # go into the instance dir
+  if ! cd "$port"; then
+    echo "hotstart stop: cannot change directory to instance dir $port"
+    return
+  fi
+
+  echo "hotstart stop: stopping instance..."
+
+  # Stop the instance
+  if [ -f "./nodeos.pid" ]; then
+    pid=$(cat "./nodeos.pid")
+    echo $pid
+    kill $pid
+    rm -r "./nodeos.pid"
+    echo -ne "Stopping nodeos.."
+    while true; do
+      [ ! -d "/proc/$pid/fd" ] && break
+      echo -ne "."
+      sleep 1
+    done
+    echo -ne "\nnodeos stopped.\n"
+  fi
+
+  # anyways go back to the root instances dir, so we can stop and clear the others
+  cd ..
+
+  # if --clear, remove the entire instance dir
+  if [ "$clear" = true ]; then
+    echo "hotstart stop: clearing instance (due to --clear)..."
+    rm -rf $port
+  fi
+}
+
+# first, be at this script's directory
+cd "$(dirname "$0")"
+
+# parse --label <test-label> or --port <portnum>
+label=""
+port=""
+clear=false
+all=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --label)
+      label="$2"
+      shift 2
+      ;;
+    --port)
+      port="$2"
+      shift 2
+      ;;
+    --clear)
+      clear=true
+      shift
+      ;;
+    --all)
+      all=true
+      shift
+      ;;
+    *)
+      echo "Invalid option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+# Check if --all was provided, and ensure that --label and --port are not provided
+if [ "$all" = true ]; then
+  if [ -n "$label" ] || [ -n "$port" ]; then
+    echo "ERROR: hotstart stop: When using --all, you cannot specify --label or --port."
+    exit 1
+  fi
+
+  # Create an array to collect directory names
+  dir_names=()
+
+  # Loop over all subdirectories and collect directory names
+  for dir in ../../local/hotstart/instances/*/; do
+    if [ -d "$dir" ]; then
+      instdir=$(basename "$dir")
+      dir_names+=("$instdir")
+    fi
+  done
+
+  # Go to the instances root dir
+  if ! cd "../../local/hotstart/instances"; then
+    echo "hotstart stop: cannot cd into local/hotstart/instances dir. assuming nothing to do."
+    exit 0
+  fi
+
+  # Loop over the directory names and call stop_and_clear_instance for each
+  for dir_name in "${dir_names[@]}"; do
+    stop_and_clear_instance "$dir_name"
+  done
+else
+  # Check if both --label and --port were provided
+  if [ -n "$label" ] && [ -n "$port" ]; then
+    echo "ERROR: hotstart stop: You cannot provide both --label and --port."
+    exit 1
+  fi
+
+  # Check if at least one of --label or --port was provided
+  if [ -z "$label" ] && [ -z "$port" ]; then
+    echo "ERROR: hotstart stop: You must provide either --label or --port."
+    exit 1
+  fi
+
+  # If --port was provided, validate that it's a positive number
+  if [ -n "$port" ]; then
+    if ! [[ $port =~ ^[0-9]+$ ]]; then
+      echo "ERROR: hotstart stop: --port must be a positive number (string with only digits)."
+      exit 1
+    fi
+  fi
+
+  # If --label was provided, call "findinstance" and translate the label into the port
+  if [ -n "$label" ]; then
+    echo "hotstart stop: instance label: $label"
+    result=$(./findinstance "$label")
+    if [ "$?" -ne 0 ]; then
+      echo "ERROR: hotstart stop: findinstance failed, result: $result."
+      exit 1
+    fi
+
+    # Check if the result is a number
+    if [[ "$result" =~ ^[+-]?[0-9]+\.?[0-9]*$ ]]; then
+      # Check if the number is positive
+      if (( $(bc <<< "$result > 0") )); then
+        port="$result"
+      else
+        echo "ERROR: hotstart stop: findinstance output is not a valid number."
+        exit 1
+      fi
+    fi
+  fi
+
+  # Go to the instances root dir
+  if ! cd "../../local/hotstart/instances"; then
+    echo "hotstart stop: cannot cd into local/hotstart/instances dir. assuming nothing to do."
+    exit 0
+  fi
+
+  stop_and_clear_instance "$port"
+fi
+
