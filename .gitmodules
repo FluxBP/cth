@@ -1,0 +1,6 @@
+[submodule "tools/reference-contracts"]
+	path = tools/reference-contracts
+	url = https://github.com/antelopeio/reference-contracts
+[submodule "tools/JSON-Tiny"]
+	path = tools/JSON-Tiny
+	url = https://github.com/daoswald/JSON-Tiny
