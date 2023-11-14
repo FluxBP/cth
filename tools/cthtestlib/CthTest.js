@@ -27,12 +27,17 @@ const DEVELOPER_PUBLIC_KEY = "EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW
 // Helper for initializing the test environment using the CthTestDriver
 //  library. Should be the first thing called by the testcase.
 //
+// startArgs is an argument string passed to hotstart start; use it to
+//  e.g. "--chaindir <some-blockchain-data-dir-to-load>".
+//
 // Defines and writes the following global variables:
 //   cth_hotstart_instance_port: P2P port of the started nodeos
 // -----------------------------------------------------------------------
 
-function init() {
-    console.log("TEST: init(): setting up test environment...");
+function init(startArgs) {
+    if (startArgs === undefined)
+        startArgs = '';
+    console.log("TEST: init(): setting up test environment, startArgs: '" + startArgs + "'");
 
     let cret = cth_set_cleos_provider("cleos-driver");
     if (cret) {
@@ -47,10 +52,10 @@ function init() {
         console.log("TEST: init(): generated instance UID (hotstart --label): " + instance_uid);
 
     // run hotstart start
-    const args = "start --label '" + instance_uid + "'";
+    const args = ("start --label '" + instance_uid + "' " + startArgs + " ").trim();
     let [out, ret] = cth_call_driver("hotstart", args);
     if (ret) {
-        console.log("ERROR: TEST: init(): cth_call_driver hotstart '" + args + "' failed");
+        console.log("ERROR: TEST: init(): cth_call_driver hotstart '" + args + "' failed: " + out);
         return -1;
     }
 
@@ -58,7 +63,7 @@ function init() {
     const findInstanceArgs = "findinstance " + instance_uid;
     const [outInstance, retInstance] = cth_call_driver("hotstart", findInstanceArgs);
     if (retInstance) {
-        console.log("ERROR: TEST: init(): cth_call_driver hotstart '" + findInstanceArgs + "' failed");
+        console.log("ERROR: TEST: init(): cth_call_driver hotstart '" + findInstanceArgs + "' failed: " + outInstance);
         return -1;
     }
 
@@ -316,29 +321,6 @@ function isValidName(str) {
     }
     return true;
 }
-
-// -----------------------------------------------------------------------
-// Cth high-level testcase logic functions
-// -----------------------------------------------------------------------
-
-/*
-// Private helper function for testcase logic functions that can fail/crash
-function handleError(error) {
-
-    // If inside a fixture test, just rethrow the error and this fixture test will
-    //   fail and the test will continue to the next fixture test.
-    if (fixtureRunning())
-        throw error;
-
-    // Not inside fixture test: this is a regular, fatal failure at the top context
-    console.log(error);
-    finish();
-    process.exit(1);
-}
-
-// When writing functions that call cleos(), use handleError() above in
-//   the catch(error) { ... } block.
-*/
 
 // -----------------------------------------------------------------------
 // End of library.

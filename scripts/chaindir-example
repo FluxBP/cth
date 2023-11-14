@@ -1,0 +1,219 @@
+#!/usr/bin/env node
+
+// This sample script is meant to be run with cth --exec
+
+// This script
+// 1. compiles the mycontract.cpp from the contract-example test
+// 2. starts the coldstart driver
+// 3. deploys mycontract and tests it
+// 4. stops the coldstart driver
+// 5. starts coldstart, tests contract again, stops it again
+// 6. saves the resulting chain data to local/chaindir_example/*
+// 7. runs itself as a normal testlib test that runs 'hotstart start' with
+//    '--chaindir local/chaindir-example'
+// 8. calls the helloworld() action on the mycontract contract, demonstrating
+//    the use of --chaindir to write scripts/tests that start from a specific
+//    blockchain state directory that's different from the default that is
+//    local/hotstart/nodeos-template
+
+require('CthTestLib');
+
+//cth_debug_trace(true);
+
+const childProcess = require('child_process');
+
+// -----------------------------------------------
+
+// where we are copying the blockchain data/state/config generated with coldstart to, to use with hotstart --chaindir later
+const chain_dir = cth_get_root_dir() + "/local/chaindir-example";
+
+// where the coldstart driver puts its blockchain data/state/config
+const coldstart_data_dir = cth_get_root_dir() + "/local/coldstart";
+
+// -----------------------------------------------
+
+function cs_clear() {
+    let [out, ret] = cth_call_driver("coldstart", "clear");
+    if (ret) {
+        console.log("ERROR: cth_call_driver coldstart clear failed: " + out);
+        process.exit(1);
+    }
+}
+
+function cs_start() {
+
+    let [out, ret] = cth_call_driver("coldstart", "start");
+    if (ret) {
+        console.log("ERROR: cth_call_driver coldstart start failed: " + out);
+        process.exit(1);
+    }
+}
+
+function cs_stop(error) {
+
+    let [out, ret] = cth_call_driver("coldstart", "stop");
+    if (ret) {
+        console.log("ERROR: cth_call_driver coldstart stop failed: " + out);
+        process.exit(1);
+    }
+
+    if (error !== undefined) {
+
+        console.log("ERROR: cs_stop() quitting: "+ error );
+        process.exit(1);
+    }
+}
+
+// -----------------------------------------------
+
+// here we want to go to the cth root dir, and from there find
+//  tests/contract-example , cd into that, call the compilation
+
+console.log("cth directory is: " + cth_get_root_dir() );
+
+process.chdir( cth_get_root_dir() + "/tests/contract-example" );
+
+// set cleos provider
+
+let cret = cth_set_cleos_provider("cleos-driver");
+if (cret) {
+    console.log("ERROR: cth_set_cleos_provider failed");
+    process.exit(1);
+}
+
+// -----------------------------------------------
+
+// start coldstart from scratch
+
+cs_clear();
+
+console.log("coldstart cleared OK");
+
+cs_start();
+
+console.log("coldstart started OK");
+
+// -----------------------------------------------
+
+// compile & deploy mycontract
+
+childProcess.execSync('cdt-cpp mycontract.cpp --abigen --no-missing-ricardian-clause');
+
+try {
+
+    cleos('system newaccount eosio mycontract EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV --stake-cpu "10000.0000 EOS" --stake-net "10000.0000 EOS" --buy-ram-kbytes 10000 --transfer');
+
+    cleos('set contract mycontract . mycontract.wasm mycontract.abi -p mycontract');
+
+    mycontract = getProxyForContract(`mycontract`);
+
+    console.log("First hello-world, from coldstart (still creating our custom data directory):");
+
+    mycontract._log().helloworld();
+
+} catch (error) {
+    cs_stop(error);
+}
+
+console.log("contract-example deployed OK");
+
+// need to sleep a bit for some reason, otherwise the data directory doesn't pick up the contract deployment.
+//
+// this probably means we have to produce at least one additional block, and that the subsequent helloworld
+//   query is not applying to produced (block, flushed) state, but to a transient local state where the
+//   transaction was already applied. Either that or kill -INT does not actually shut down nodeos gracefully.
+//
+// if the former, would be useful to change this for a facility that waits for "+1 block" explicitly
+//
+childProcess.execSync('sleep 3');
+
+// stop cs
+cs_stop();
+
+console.log("coldstart stopped OK");
+
+// -----------------------------------------------
+
+// save to cth root dir /local/chaindir_example (overwrite if necessary)
+
+childProcess.execSync( "rm -rf " + chain_dir );
+
+childProcess.execSync( "mkdir -p " + chain_dir );
+
+// copy local/coldstart to local/chaindir_example
+childProcess.execSync( "cp -r " + coldstart_data_dir + "/* " + chain_dir);
+
+console.log("chaindir copied OK");
+
+// -----------------------------------------------
+
+// start and stop coldstart again to make sure the contract is there
+// this could fail if the coldstart driver's stop script wasn't shutting down nodeos gracefully
+
+cs_start();
+
+console.log("coldstart started again OK");
+
+try {
+
+    mycontract = getProxyForContract(`mycontract`);
+
+    console.log("Second hello-world, from coldstart (still creating our custom data directory):");
+
+    mycontract._log().helloworld();
+
+} catch (error) {
+    cs_stop(error);
+}
+
+cs_stop();
+
+console.log("coldstart stopped again OK");
+
+// -----------------------------------------------
+
+// start hotstart driver from a given chain data directory (the one we generated above)
+// this example tool-script thus shows how to create a script that generates any kind of
+//   snapshot for later use with hotstart.
+// e.g. you can create a test driver that enables a specific group of tests that starts
+//   from a given state (e.g. a DApp deployment) to work, and that driver is really a
+//   front-end driver to its backing driver which would be e.g. hotstart. your front-end
+//   driver's install script would e.g. call a script like this one via cth -e instead
+//   of hard-coding the snapshot-generation functionality in itself (which also works)
+// in any case, your DApp's tests all pass something like this "local/chaindir-example"
+//   as a --chaindir arg to hotstart start (or init() or fixtureInit()).
+
+fixtureInit("--chaindir " + chain_dir );
+
+console.log("hotstart started OK");
+
+// call helloworld on hotstart instance
+
+try {
+
+    mycontract = getProxyForContract(`mycontract`);
+
+    console.log("Third and hello-world, from hotstart:");
+
+    mycontract._log().helloworld();
+
+    console.log("\n*************************************************************");
+    console.log  ("****                    SUCCESS                          ****");
+    console.log  ("****    hotstart start --chaindir feature is working!    ****");
+    console.log  ("*************************************************************\n");
+
+} catch (error) {
+    fixtureFinish(error);
+}
+
+// actually clear the colstart state since we won't need it now to debug this script
+
+console.log("clearing coldstart");
+
+cs_clear();
+
+console.log("everything succeeded");
+
+// stop hotstart, cleanup everything, done
+
+fixtureFinish();

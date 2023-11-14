@@ -1,0 +1,5 @@
+*.log
+*.pid
+/local/*
+!/local/.gitkeep
+/extras/*

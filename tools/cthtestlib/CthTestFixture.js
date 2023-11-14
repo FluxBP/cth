@@ -290,12 +290,12 @@ function fixturePrintSummary() {
 // Wrapper to init() that resets _fixtureCurrent.
 // -----------------------------------------------------------------------
 
-function fixtureInit() {
+function fixtureInit(startArgs) {
 
     console.log("TEST: fixtureInit(): initializing test...");
 
     // starts nodeos (from CthTest.js, loaded in the global scope)
-    init();
+    init(startArgs);
 
     // to differentiate from 'NO_FIXTURE'.
     _fixtureCurrent = 'FIXTURE_INIT';

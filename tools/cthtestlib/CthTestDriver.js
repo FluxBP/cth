@@ -163,7 +163,7 @@ function cth_cleos(args) {
         // Have to print anyway, since this function doesn't return the output
         console.log(`ERROR: cth_cleos: command returned a nonzero (error) code: ${error.status}`);
         console.log("cth_cleos: ----- begin error dump -----");
-        console.log(error);
+        console.log(error.toString());
         console.log("cth_cleos: ------ end error dump ------");
 
         if (error.status == 0)
@@ -222,7 +222,7 @@ function cth_cleos_pipe(args) {
         // Have to print anyway, since this function doesn't return the output
         console.log(`ERROR: cth_cleos_pipe: command returned a nonzero (error) code: ${error.status}`);
         console.log("cth_cleos_pipe: ----- begin error dump -----");
-        console.log(error);
+        console.log(error.toString());
         console.log("cth_cleos_pipe: ------ end error dump ------");
 
         return undefined;
@@ -267,7 +267,7 @@ function cth_cleos_pipe2(args) {
         if (DEBUG_TRACE) {
             console.log(`ERROR: cth_cleos_pipe2: command returned a nonzero (error) code: ${error.status}`);
             console.log("cth_cleos_pipe2: ----- begin error dump -----");
-            console.log(error);
+            console.log(error.toString());
             console.log("cth_cleos_pipe2: ------ end error dump ------");
         }
 
@@ -489,14 +489,14 @@ function cth_call_driver(driver, command) {
         if (DEBUG_TRACE) {
             console.log(`ERROR: cth_call_driver: command returned a nonzero (error) code: ${error.status}`);
             console.log("cth_call_driver: ----- begin error dump -----");
-            console.log(error);
+            console.log(error.toString());
             console.log("cth_call_driver: ------ end error dump ------");
         }
 
         if (error.status == 0) {
-            return [error, -1];
+            return [error.toString(), -1];
         } else {
-            return [error, error.status];
+            return [error.toString(), error.status];
         }
     }
 }

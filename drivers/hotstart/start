@@ -49,6 +49,8 @@ my $cleos_driver_dir = "../../drivers/cleos-driver"; # /drivers/cleos-driver
 
 my $label; # passed as command-line argument: --label xxx
 
+my $chaindir; # absolute path to the directory with the nodeos template data directory to use to run the test
+
 # when the nodeos instance is up, that's where it will be (ports and directory)
 my $p2p_port_number;
 my $http_port_number;
@@ -93,6 +95,36 @@ sub do_stop {
 }
 
 # --------------------------------------------------------------------------------------------
+# Parse command-line arguments.
+# --------------------------------------------------------------------------------------------
+
+my ($switches, $options) = cth_standard_args_parser("label chaindir", "");
+
+# --------------------------------------------------------------------------------------------
+# Get the test label.
+# --------------------------------------------------------------------------------------------
+
+if (exists $switches->{'label'} && $switches->{'label'} ne '') {
+    $label = $switches->{'label'};
+    print "hotstart start: Test label (unique identifier): '$label'\n";
+} else {
+    die "ERROR: hotstart start: --label <test-UID> is a required argument.\n";
+}
+
+# --------------------------------------------------------------------------------------------
+# Get the nodeos template data directory, if any.
+# --------------------------------------------------------------------------------------------
+
+if (exists $switches->{'chaindir'} && $switches->{'chaindir'} ne '') {
+    $chaindir = $switches->{'chaindir'};
+    print "hotstart start: chaindir specified: '$chaindir'\n";
+    $chaindir = absolute($chaindir, CthUtils::ABSOLUTE_MUST_EXIST);
+    print "hotstart start: chaindir (absolute): '$chaindir'\n";
+} else {
+    print "hotstart start: chaindir not specified, so using hotstart's installed default.\n";
+}
+
+# --------------------------------------------------------------------------------------------
 # The working_dir is relative to the script's directory. Make sure to create it, then find it,
 #   then change to it.
 # --------------------------------------------------------------------------------------------
@@ -101,6 +133,10 @@ my $abs_nodeos_tool_dir = absolute("$RealBin/$nodeos_tool_dir", CthUtils::ABSOLU
 my $abs_working_dir = absolute("$RealBin/$working_dir", CthUtils::ABSOLUTE_ENSURE_CREATE); # NEW behavior
 my $abs_instances_dir = absolute("$abs_working_dir/$instances_dir", CthUtils::ABSOLUTE_ENSURE_CREATE);
 my $abs_template_dir = absolute("$abs_working_dir/$template_dir", CthUtils::ABSOLUTE_MUST_EXIST);
+
+if (!defined $chaindir) {
+    $chaindir = $abs_template_dir;
+}
 
 chdir_for_sure($abs_working_dir);
 
@@ -119,23 +155,6 @@ use CthGoodies;
 my $err = cth_set_cleos_provider('cleos-driver');
 if ($err) {
     die "ERROR: hotstart start: cth_set_cleos_provider failed for some reason.\n";
-}
-
-# --------------------------------------------------------------------------------------------
-# Parse command-line arguments.
-# --------------------------------------------------------------------------------------------
-
-my ($switches, $options) = cth_standard_args_parser("label", "");
-
-# --------------------------------------------------------------------------------------------
-# Get the test label.
-# --------------------------------------------------------------------------------------------
-
-if (exists $switches->{'label'} && $switches->{'label'} ne '') {
-    $label = $switches->{'label'};
-    print "hotstart start: Test label (unique identifier): '$label'\n";
-} else {
-    die "ERROR: hotstart start: --label <test-UID> is a required argument.\n";
 }
 
 # --------------------------------------------------------------------------------------------
@@ -249,8 +268,8 @@ if (!chdir($abs_this_inst_dir)) {
 # Copy the chainbase over to this instance's created work dir
 # --------------------------------------------------------------------------------------------
 
-print "hotstart start: copying nodeos template from '$abs_template_dir' to my instance dir '$abs_this_inst_dir'\n";
-print `cp -r $abs_template_dir/* $abs_this_inst_dir`;
+print "hotstart start: copying nodeos template from '$chaindir' to my instance dir '$abs_this_inst_dir'\n";
+print `cp -r $chaindir/* $abs_this_inst_dir`;
 if ($? != 0) {
     print "ERROR: hotstart start: Failed to copy nodeos data directory: $!\n";
     do_stop();

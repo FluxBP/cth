@@ -71,6 +71,7 @@ use Getopt::Long;
 use Cwd;
 use File::Basename;
 use File::Spec::Functions;
+use FindBin qw($RealBin);
 
 my $RED = "\e[31m";
 my $GRN = "\e[32m";
@@ -78,10 +79,10 @@ my $YEL = "\e[33m";
 my $DEF = "\e[0m";
 
 # --------------------------------------------------------------------------------------------
-# Tee all output to cth.log
+# Tee all output to cth.log (force it to be at the $RealBin)
 # --------------------------------------------------------------------------------------------
 
-my $log_file = "cth.log";
+my $log_file = "$RealBin/cth.log";
 if (-e $log_file) { unlink $log_file or die "ERROR: cth: Could not delete '$log_file': $!"; }
 open(STDOUT, "| tee -a $log_file") or die "ERROR: cth: Can't open '$log_file': $!"; # Redirect STDOUT to tee
 open(STDERR, ">&STDOUT"); # Redirect STDERR to STDOUT
@@ -94,7 +95,11 @@ my $failed_summary_log_file = "failed.log";
 
 my $cth_exit_code_skipped_test = 32;
 
-my $root_dir = getcwd();
+my $original_dir = getcwd();
+sub chdir_original() { chdir $original_dir or die "ERROR: cth: can't change to the directory where cth was originally invoked from '$original_dir': $!"; }
+
+my $root_dir = $RealBin;
+sub chdir_root() { chdir $root_dir or die "ERROR: cth: can't change to cth's home root directory '$root_dir': $!"; }
 
 my $default_tests_dir = "tests";
 
@@ -166,6 +171,7 @@ my @opt_option;       # each element of these two outer arrays is a
 my @opt_switch;       #  2-element array that contains the key and value pair.
 my $opt_clear = 0;
 my $opt_dump = 0;
+my @opt_exec;
 my $opt_findtests;
 my $opt_force = 0;
 my $opt_help = 0;
@@ -179,6 +185,7 @@ my $opt_verbose = 0;
 GetOptions(
     "clear|c"      => \$opt_clear,
     "dump"         => \$opt_dump,
+    "exec|e=s"     => sub { push @opt_exec, $_[1]; },
     "findtests=s"  => \$opt_findtests,
     "force|f"      => \$opt_force,
     "help|h"       => \$opt_help,
@@ -229,14 +236,19 @@ if ($opt_help) {
     print "  Install drivers, then run tests afterwards if installation successful:\n";
     print "    cth -i -f\n";
     print "\n";
-    print "Running tests vs. installing test drivers:\n";
-    print "  Installation/set-up operations like --install, --run, --clear and --reset\n";
-    print "  prevent cth from running tests afterwards, unless --force is specified.\n";
+    print "Running tests vs. performing other operations:\n";
+    print "  Operations like --install, --run, --clear, --reset and --exec prevent cth\n";
+    print "  from running tests afterwards, unless --force is specified.\n";
     print "\n";
     print "Tests directories:\n";
     print "  A 'tests dir' is a directory whose subdirectories are all tests. A valid\n";
     print "  test subdirectory must contain an executable 'run' file that is the test\n";
     print "  program itself; the name of that subdirectory is the name of the test.\n";
+    print "\n";
+    print "Executing script files (--exec, -e):\n";
+    print "  A 'script' is any executable file, anywhere, that is constructed exactly\n";
+    print "  as a test 'run' file is, but isn't used to actually test anything. Instead,\n";
+    print "  it leverages cth drivers and libraries to automate blockchain tasks.\n";
     print "\n";
     print "Auto Switch Filter:\n";
     print "  Test directories with the SWITCHNAME:VALUE pattern in their name will be\n";
@@ -247,10 +259,13 @@ if ($opt_help) {
     print "Options:\n";
     print "\n";
     print "  --clear, -c         Clear all tests and drivers (doesn't run tests)\n";
-    print "  --dump              Dump failed.log and all failed driver install.log files\n";
+    print "  --dump              Dump failed.log, all failed driver install.log files,\n";
+    print "                      and the output of any scripts run with --exec, -e\n";
+    print "  --exec, -e <s>      Executes script file <s>; scripts don't receive -s, -o;\n";
+    print "                      Specify all args in <s>, e.g.: -s 'script arg1 arg2'\n";
     print "  --findtests <d>     Scans directory <d> recursively for tests dirs, which\n";
     print "                      is the same as using -t for every tests subdirectory\n";
-    print "  --force, -f         Force tests to run after all installation/set-up tasks\n";
+    print "  --force, -f         Force tests to run after installation/set-up/exec tasks\n";
     print "  --help, -h          Print this help\n";
     print "  --install, -i       Run 'install' on all drivers\n";
     print "                      Forwards specified switches/options to each installer\n";
@@ -276,19 +291,15 @@ if ($opt_help) {
 
 if ($opt_verbose) { print "Working directory (test root): $root_dir\n"; }
 
-# Ensure "local/" exists
-if (! -d "$root_dir/local") { `mkdir -p $root_dir/local`; }
-if (! -e "$root_dir/local/.gitkeep") { `touch $root_dir/local/.gitkeep`; }
-
-if (@opt_run || $opt_install || $opt_reset || $opt_clear) {
+if (@opt_run || $opt_install || $opt_reset || $opt_clear || @opt_exec) {
     if ($opt_force) {
-        print "Installation/set-up tasks detected but --force was specified. Will run tests if all installation/set-up tasks are succesful.\n";
+        print "Installation/set-up/exec tasks detected but --force was specified. Will run tests if all installation/set-up/exec tasks are succesful.\n";
     } else {
-        print "Installation/set-up tasks detected. Will NOT run any tests.\n";
+        print "Installation/set-up/exec tasks detected. Will NOT run any tests.\n";
         $DO_NOT_RUN_TESTS = 1;
     }
 } else {
-    if ($opt_verbose) { print "Will run tests (no installation/set-up tasks detected).\n"; }
+    if ($opt_verbose) { print "Will run tests (no installation/set-up/exec tasks detected).\n"; }
 }
 
 if ($opt_findtests) {
@@ -343,8 +354,12 @@ if ($opt_findtests) {
 }
 
 if (! @opt_testsdir) {
-    push @opt_testsdir, $default_tests_dir;
-    if ($opt_verbose) { print "No --testsdir, -t options detected; will run tests in default tests subdirectory '$default_tests_dir'\n"; }
+    if (-e $default_tests_dir) {
+        push @opt_testsdir, $default_tests_dir;
+        if ($opt_verbose) { print "No --testsdir, -t options detected; will run tests in default tests subdirectory '$default_tests_dir'\n"; }
+    } else {
+        if ($opt_verbose) { print "No --testsdir, -t options detected and default tests subdirectory '$default_tests_dir' not found\n"; }
+    }
 }
 
 foreach my $opt_td (@opt_testsdir) {
@@ -365,15 +380,18 @@ if ($opt_verbose) {
     }
 }
 
+# Can´t do this because cth can e.g. call a driver whose implementation now is calling cth --exec
+# Anyway, this was never strictly necessary, and is just a bad idea, really
+#
 #--------------------------------------------------------------------------------------------
 # Refuse to run if another instance of cth is already running in the system.
 # --------------------------------------------------------------------------------------------
-
-my @pgrep_output = `pgrep -x cth`; # Run pgrep to get a list of PIDs for the "cth" process
-die "ERROR: cth: Failed to run pgrep: $!" if $?;
-chomp(@pgrep_output);
-@pgrep_output = grep { $_ != $$ } @pgrep_output; # Remove our own PID from the list
-die "ERROR: cth: This instance ($$) will exit since there are other running cth instances (PIDs: " . join(", ", @pgrep_output) . ")" if (@pgrep_output);
+#
+#my @pgrep_output = `pgrep -x cth`; # Run pgrep to get a list of PIDs for the "cth" process
+#die "ERROR: cth: Failed to run pgrep: $!" if $?;
+#chomp(@pgrep_output);
+#@pgrep_output = grep { $_ != $$ } @pgrep_output; # Remove our own PID from the list
+#die "ERROR: cth: This instance ($$) will exit since there are other running cth instances (PIDs: " . join(", ", @pgrep_output) . ")" if (@pgrep_output);
 
 # --------------------------------------------------------------------------------------------
 # Resolve switches and options to be passed to tests and/or installers
@@ -410,6 +428,20 @@ if ($global_test_or_installer_args eq '') {
     print "\n";
     if ($opt_verbose) { print "Parameter string for all tests/installers:\n  $global_test_or_installer_args\n\n"; }
 }
+
+# --------------------------------------------------------------------------------------------
+# Now that we found tests, everything else should be run from cth's home directory, with
+#   exceptions like --exec,-e which has to run from the $original_dir instead
+# --------------------------------------------------------------------------------------------
+
+chdir_root();
+
+# --------------------------------------------------------------------------------------------
+# Ensure "local/" exists
+# --------------------------------------------------------------------------------------------
+
+if (! -d "local") { `mkdir local`; }
+if (! -e "local/.gitkeep") { `touch local/.gitkeep`; }
 
 # --------------------------------------------------------------------------------------------
 # Get a list of all drivers
@@ -780,32 +812,8 @@ while (scalar(@opt_run) > 0) {
 }
 
 # --------------------------------------------------------------------------------------------
-# Decide whether we are going to run tests or not
-# --------------------------------------------------------------------------------------------
-
-if (@FAILED_SETUP_TASKS) {
-    print "ERROR: Some installation/set-up tasks have failed.\n";
-    foreach my $failed_setup_task (@FAILED_SETUP_TASKS) {
-        print "  Failed: $failed_setup_task\n";
-    }
-    print "\n";
-    if (! $DO_NOT_RUN_TESTS) {
-        print "ERROR: Tests were scheduled to run (due to --force), but will be ignored due to installation/set-up tasks having failed.\n";
-        print "\n";
-    }
-    exit 1;
-}
-
-if ($DO_NOT_RUN_TESTS) {
-    print "\n";
-    print "Test running is disabled because installation/set-up tasks were performed.\n";
-    print "  (to force test running after installation/set-up tasks, use --force)\n";
-    print "\n";
-    exit;
-}
-
-# --------------------------------------------------------------------------------------------
-# Configure environment variables so the tests can find the test libraries under tools/
+# Configure environment variables so tests and -exec scripts can find the test libraries
+#   under tools/
 # --------------------------------------------------------------------------------------------
 
 my %seen;
@@ -870,6 +878,77 @@ if (defined $ENV{PERL5LIB} && $ENV{PERL5LIB} ne '') {
     $ENV{PERL5LIB} = join(':', @pm_directories);
 }
 if ($opt_verbose) { print "Perl tests will receive environment variable PERL5LIB: $ENV{PERL5LIB}\n"; }
+
+# --------------------------------------------------------------------------------------------
+# Process all --exec commands
+# These are found and run temporarily from the original dir, but we change back to root
+# --------------------------------------------------------------------------------------------
+
+chdir_original();
+
+while (scalar(@opt_exec) > 0) {
+
+    my $cmd = shift @opt_exec;
+
+    print "cth: Executing: '$cmd' ...\n";
+
+    my $output = `$cmd 2>&1`;
+
+    my $exit_status = $?;
+    if ($exit_status < 0) {
+        print "ERROR: cth: --exec '$cmd' failed ($exit_status): $!\n";
+        exit 1;
+    }
+
+    # dump on error, but also dump if --dump
+    if ($opt_dump || $exit_status) {
+        print "\n";
+        print "--------------------------------------------------------------------------------\n";
+        print "Begin dump: --exec '$cmd'\n";
+        print "--------------------------------------------------------------------------------\n";
+        print $output;
+        print "\n";
+        print "--------------------------------------------------------------------------------\n";
+        print "End dump: --exec '$cmd'\n";
+        print "--------------------------------------------------------------------------------\n";
+        print "\n";
+    }
+
+    my $exit_code = $exit_status >> 8;
+    if ($exit_code) {
+        print "ERROR: cth: --exec '$cmd' returned exit code: $exit_code ($exit_status)\n";
+        exit 1;
+    }
+
+    print "cth: --exec '$cmd' finished successfully.\n\n";
+}
+
+chdir_root();
+
+# --------------------------------------------------------------------------------------------
+# Decide whether we are going to run tests or not
+# --------------------------------------------------------------------------------------------
+
+if (@FAILED_SETUP_TASKS) {
+    print "ERROR: Some installation/set-up/exec tasks have failed.\n";
+    foreach my $failed_setup_task (@FAILED_SETUP_TASKS) {
+        print "  Failed: $failed_setup_task\n";
+    }
+    print "\n";
+    if (! $DO_NOT_RUN_TESTS) {
+        print "ERROR: Tests were scheduled to run (due to --force), but will be ignored due to installation/set-up/exec tasks having failed.\n";
+        print "\n";
+    }
+    exit 1;
+}
+
+if ($DO_NOT_RUN_TESTS) {
+    print "\n";
+    print "Test running is disabled because installation/set-up/exec tasks were performed.\n";
+    print "  (to force test running after installation/set-up/exec tasks, use --force)\n";
+    print "\n";
+    exit;
+}
 
 # --------------------------------------------------------------------------------------------
 # Run tests
@@ -1148,17 +1227,17 @@ if ($sum_fail > 0 && open(my $failed_log, '>', $failed_summary_log_file)) {
         my $output = "";
         my $omit_start = -1;
         for (my $i = 0; $i < scalar(@run_log_lines); $i++) {
-        if ($lines_to_print{$i} == 0) {
-            if ($omit_start == -1) {
-                $omit_start = $i;
+            if ($lines_to_print{$i} == 0) {
+                if ($omit_start == -1) {
+                    $omit_start = $i;
+                }
+                next;
             }
-            next;
-        }
-        if ($omit_start != -1) {
-            $output .= "${YEL}[$omit_start ... " . ($i - 1) . "]$DEF\n";
-            $omit_start = -1;
-        }
-        $output .= $YEL . sprintf("%4d", $i) . "|" . $DEF . $run_log_lines[$i];
+            if ($omit_start != -1) {
+                $output .= "${YEL}[$omit_start ... " . ($i - 1) . "]$DEF\n";
+                $omit_start = -1;
+            }
+            $output .= $YEL . sprintf("%4d", $i) . "|" . $DEF . $run_log_lines[$i];
         }
         if ($omit_start != -1) {
             $output .= "${YEL}[$omit_start ... " . scalar(@run_log_lines) . "]$DEF\n";

@@ -1,23 +1,55 @@
 #!/bin/bash
 
-# make sure the current working dir is the driver's working dir
+# Make sure the current working directory is the driver's working directory
 # at ../../local/coldstart/
 cd "$(dirname "$0")"
 if ! cd "../../local/coldstart"; then
-  echo "coldstart stop: cannot change directory to local/coldstart; assuming no coldstart nodeos to stop"
-  exit 0
+    echo "coldstart stop: cannot change directory to local/coldstart; assuming no coldstart nodeos to stop"
+    exit 0
 fi
 
 if [ -f "./nodeos.pid" ]; then
-pid=`cat "./nodeos.pid"`
-echo $pid
-kill $pid
-rm -r "./nodeos.pid"
-echo -ne "Stoping nodeos.."
-while true; do
-[ ! -d "/proc/$pid/fd" ] && break
-echo -ne "."
-sleep 1
-done
-echo -ne "\nnodeos stopped.\n"
+    pid=$(cat "./nodeos.pid")
+    echo $pid
+
+    # Send the INT signal to the process
+    kill -INT $pid
+    echo -ne "Stopping nodeos..."
+
+    # Wait up to 5 seconds for the process to respond to TERM signal
+    timeout=5
+    while [ $timeout -gt 0 ]; do
+        if [ ! -d "/proc/$pid/fd" ]; then
+            echo -ne "\nnodeos stopped (-INT).\n"
+            # Remove the pid file
+            rm -r "./nodeos.pid"
+            # done
+            exit 0
+        fi
+        echo -ne "."
+        sleep 1
+        ((timeout--))
+    done
+
+    # If the process did not respond to TERM, forcefully terminate with KILL signal
+    echo -ne "\nNodeos did not respond to TERM signal. Forcefully terminating with KILL signal..."
+    kill -KILL $pid
+
+    # Wait for the process to respond to KILL signal
+    timeout=5
+    while [ $timeout -gt 0 ]; do
+        if [ ! -d "/proc/$pid/fd" ]; then
+            echo -ne "\nnodeos stopped (-KILL).\n"
+            # Remove the pid file
+            rm -r "./nodeos.pid"
+            # done
+            exit
+        fi
+        echo -ne "."
+        sleep 1
+        ((timeout--))
+    done
+
+    echo -ne "\nERROR: could not stop nodeos even with kill -KILL.\n"
+    exit 1
 fi
