@@ -818,7 +818,8 @@ while (scalar(@opt_run) > 0) {
 
 # ------------------------------------------------------------------------------
 # Configure environment variables so tests and -exec scripts can find the test
-#   libraries under tools/
+#   libraries under tools/ (both under the cth installation directory and the
+#    directory where cth was run from).
 # ------------------------------------------------------------------------------
 
 my %seen;
@@ -829,6 +830,7 @@ my @dirs_to_process;
 
 my @js_directories;
 @dirs_to_process = ("$root_dir/tools");
+if ($root_dir ne $original_dir && -d "$original_dir/tools") { push @dirs_to_process, "$original_dir/tools"; }
 while (my $dir = shift @dirs_to_process) {
     opendir my $dh, $dir or die "Unable to open directory $dir: $!";
     my @files = readdir $dh;
@@ -859,6 +861,7 @@ if ($opt_verbose) { print "Node.js tests will receive environment variable NODE_
 # This is needed because we don't know how deep under tools/ the .pm files are.
 my @pm_directories;
 @dirs_to_process = ("$root_dir/tools");
+if ($root_dir ne $original_dir && -d "$original_dir/tools") { push @dirs_to_process, "$original_dir/tools"; }
 while (my $dir = shift @dirs_to_process) {
     opendir my $dh, $dir or die "Unable to open directory $dir: $!";
     my @files = readdir $dh;
