@@ -1047,9 +1047,9 @@ unlink($failed_summary_log_file);
 
 if ($opt_verbose) { print "\n"; }
 print "Running $tests_size test";
-if ($tests_size > 1) {
+if ($tests_size != 1) {
     print "s";
-    if ($opt_jobs > 1) {
+    if ($tests_size > 0 && $opt_jobs > 1) {
         print " (";
         if ($tests_size > $opt_jobs) { print "up to $opt_jobs "; }
         print "in parallel)";
