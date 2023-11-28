@@ -478,7 +478,7 @@ function cth_call_driver(driver, command) {
         console.log(`cth_call_driver: run command: ${commandPath}`);
 
     try {
-        const output = child_process.execSync(commandPath, { stdio: 'pipe' }).toString();
+        const output = child_process.execSync(commandPath).toString();
 
         if (DEBUG_TRACE)
             console.log(`cth_call_driver: command successful, output:\n${output}`);
@@ -488,11 +488,19 @@ function cth_call_driver(driver, command) {
 
         if (DEBUG_TRACE) {
             console.log(`ERROR: cth_call_driver: command returned a nonzero (error) code: ${error.status}`);
+            console.log("cth_call_driver: ----- begin stdout dump -----");
+            console.log(error.stdout.toString());
+            console.log("cth_call_driver: ------ end stdout dump ------");
+            console.log("cth_call_driver: ----- begin stderr dump -----");
+            console.log(error.stderr.toString());
+            console.log("cth_call_driver: ------ end stderr dump ------");
             console.log("cth_call_driver: ----- begin error dump -----");
             console.log(error.toString());
             console.log("cth_call_driver: ------ end error dump ------");
         }
 
+        // We are not returning the entire error object with stdout/stderr.
+        // This is enough for now. To see these, just set DEBUG_TRACE.
         if (error.status == 0) {
             return [error.toString(), -1];
         } else {
