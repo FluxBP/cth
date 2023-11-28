@@ -259,6 +259,12 @@ if ($opt_help) {
     print "  exact value VALUE. For example, 'target:hg2-dashes-are-separators' requires\n";
     print "  'cth -s target=hg2'. Values with e.g. '/' (illegal filename) not supported.\n";
     print "\n";
+    print "Test library paths:\n";
+    print "  cth scans both its own 'tools/' subdirectory and the 'tools/' subdirectory\n";
+    print "  of the directory cth is invoked from for Perl and Javascript library dirs.\n";
+    print "  Those are added to PERL5LIB and NODE_PATH, allowing tests to import both\n";
+    print "  the standard cth test libraries and custom ones for your project.\n";
+    print "\n";
     print "Options:\n";
     print "\n";
     print "  --clear, -c         Clear all tests and drivers (doesn't run tests)\n";
