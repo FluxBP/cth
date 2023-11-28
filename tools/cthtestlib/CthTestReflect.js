@@ -302,13 +302,21 @@ function getProxyForContract(contractAccountName) {
                             return ro;
                         // there's more and the easiest way to assemble the next cleos call is to
                         //   just hack the q variable here.
+                        let replace;
+                        let pattern;
                         if (reverse) {
                             // in reverse mode the next key should be the next upper
-                            q = q.replace(/--upper\s+\S+/g, `--upper ${o.next_key}`);
+                            replace = `--upper ${o.next_key}`;
+                            pattern = /--upper\s+\S+/g;
                         } else {
                             // in non-reverse mode the next key should be the next lower
-                            q = q.replace(/--lower\s+\S+/g, `--lower ${o.next_key}`);
+                            replace = `--lower ${o.next_key}`;
+                            pattern = /--lower\s+\S+/g;
                         }
+                        if (q.match(pattern))
+                            q = q.replace(pattern, replace) // replace the lower/upper bound value in existing param
+                        else
+                            q += ` ${replace}`; // param pattern wasn't there, so just append the new lower/upper bound param
                     }
                     // if loop exited, we reached the limit without reaaching the end of the query
                     const paramList = params.map(element => JSON.stringify(element)).join(',');
