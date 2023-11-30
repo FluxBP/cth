@@ -697,6 +697,11 @@ if (@tests) {
             $match_parts++;
         }
         $tests_prefix = File::Spec->catdir(@test_parts[0 .. $match_parts - 1]);
+        if ($tests_prefix eq $test) {
+            # prefix cannot be an entire test name
+            # in that case, remove last component (test dir name)
+            $tests_prefix = File::Spec->catdir(@test_parts[0 .. $match_parts - 2]);
+        }
     }
     # include a last slash into the common prefix if it's there
     if (length($tests_prefix) < length($tests[0])) {
@@ -715,13 +720,7 @@ if (@tests) {
 sub shorten_test_name {
     my $test_name = shift;
     if (! defined $test_name) { die "FATAL ERROR: cth: shorten_test_name undefined test_name"; }
-    my $full_test_name = $test_name;
     if (length($test_name) >= length($tests_prefix)) { $test_name = substr($test_name, length($tests_prefix)); }
-    if ($test_name eq '') {
-        # tests can end up with an empty name if the prefix is the whole test name
-        # in this corner case, try to get the last component of the full name instead
-        $test_name = (split('/', $full_test_name))[-1];
-    }
     return $test_name;
 }
 
