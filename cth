@@ -174,6 +174,7 @@ my @opt_option;       # each element of these two outer arrays is a
 my @opt_switch;       #  2-element array that contains the key and value pair.
 my $opt_clear = 0;
 my $opt_dump = 0;
+my $opt_dumpall = 0;
 my @opt_exec;
 my $opt_findtests;
 my $opt_force = 0;
@@ -188,6 +189,7 @@ my $opt_verbose = 0;
 GetOptions(
     "clear|c"      => \$opt_clear,
     "dump"         => \$opt_dump,
+    "dumpall"      => \$opt_dumpall,
     "exec|e=s"     => sub { push @opt_exec, $_[1]; },
     "findtests=s"  => \$opt_findtests,
     "force|f"      => \$opt_force,
@@ -220,6 +222,11 @@ foreach my $pair (@opt_option) {
 # jobs must be a positive integer
 if (!($opt_jobs =~ /^\d+$/) || $opt_jobs < 1) {
     die "ERROR: invalid --jobs: $opt_jobs\n";
+}
+
+# --dumpall includes --dump
+if ($opt_dumpall) {
+    $opt_dump = 1;
 }
 
 @testspecs = @ARGV;
@@ -270,6 +277,7 @@ if ($opt_help) {
     print "  --clear, -c         Clear all tests and drivers (doesn't run tests)\n";
     print "  --dump              Dump failed.log, all failed driver install.log files,\n";
     print "                      and the output of any scripts run with --exec, -e\n";
+    print "  --dumpall           Same as --dump, plus dump all test 'run.log' files\n";
     print "  --exec, -e <s>      Executes script file <s>; scripts don't receive -s, -o;\n";
     print "                      Specify all args in <s>, e.g.: -s 'script arg1 arg2'\n";
     print "  --findtests <d>     Scans directory <d> recursively for tests dirs, which\n";
@@ -983,9 +991,9 @@ sub print_test_name {
 }
 
 sub test_result {
-    my $test_name = shift;
-    if (! defined $test_name) { die "FATAL ERROR: cth: test_result undefined test_name"; }
-    $test_name = shorten_test_name($test_name);
+    my $long_test_name = shift;
+    if (! defined $long_test_name) { die "FATAL ERROR: cth: test_result undefined long_test_name"; }
+    my $test_name = shorten_test_name($long_test_name);
     my $exit_status = shift;
     if (! defined $exit_status) { die "FATAL ERROR: cth: test_result undefined exit_status"; }
     if ($exit_status == 0) {
@@ -1000,6 +1008,19 @@ sub test_result {
         print "${RED}Failed${DEF} (exit code: $exit_status).\n";
         $sum_fail++;
         push @sum_failed_tests, $test_name;
+    }
+
+    if ($opt_dumpall) {
+        my $run_log_file = $long_test_name . "/run.log";
+        print "\n";
+        print "--------------------------------------------------------------------------------\n";
+        print "Begin dump: $run_log_file\n";
+        print "--------------------------------------------------------------------------------\n";
+        print `cat $run_log_file`;
+        print "--------------------------------------------------------------------------------\n";
+        print "End dump: $run_log_file\n";
+        print "--------------------------------------------------------------------------------\n";
+        print "\n";
     }
 }
 
