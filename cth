@@ -279,7 +279,7 @@ if ($opt_help) {
     print "                      and the output of any scripts run with --exec, -e\n";
     print "  --dumpall           Same as --dump, plus dump all test 'run.log' files\n";
     print "  --exec, -e <s>      Executes script file <s>; scripts don't receive -s, -o;\n";
-    print "                      Specify all args in <s>, e.g.: -s 'script arg1 arg2'\n";
+    print "                      Specify all args in <s>, e.g.: -e 'script arg1 arg2'\n";
     print "  --findtests <d>     Scans directory <d> recursively for tests dirs, which\n";
     print "                      is the same as using -t for every tests subdirectory\n";
     print "  --force, -f         Force tests to run after installation/set-up/exec tasks\n";
