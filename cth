@@ -112,6 +112,10 @@ my $drivers_dir = "drivers";
 # -s and -o also allow cth to parameterize all driver installs via -i.
 my $global_test_or_installer_args = '';
 
+# This is a list of all --findtests directories (currently, only one --findtests is supported, so one directory at most).
+# It's the same as $opt_findtests, but in absolute path form.
+my @findtests_dirs;
+
 # This is a list of all tests directories. It's the same as @opt_testsdirs, but in absolute path form.
 my @tests_dirs;
 
@@ -251,7 +255,7 @@ if ($opt_help) {
     print "  from running tests afterwards, unless --force is specified.\n";
     print "\n";
     print "Tests directories:\n";
-    print "  A 'tests dir' is a directory whose subdirectories are all tests. A valid\n";
+    print "  A 'tests dir' is a directory that has at least one test subdirectory. A\n";
     print "  test subdirectory must contain an executable 'run' file that is the test\n";
     print "  program itself; the name of that subdirectory is the name of the test.\n";
     print "\n";
@@ -271,6 +275,12 @@ if ($opt_help) {
     print "  of the directory cth is invoked from for Perl and Javascript library dirs.\n";
     print "  Those are added to PERL5LIB and NODE_PATH, allowing tests to import both\n";
     print "  the standard cth test libraries and custom ones for your project.\n";
+    print "\n";
+    print "Testlet support:\n";
+    print "  cth sets the CTH_PATH environment variable to every tests directory found,\n";
+    print "  and any directory given to --findtests. It can be used by test libraries\n";
+    print "  (cth or project-specific) to find testlets. Testlets are testing component\n";
+    print "  files of various kinds; what they are and do depends on each test library.\n";
     print "\n";
     print "Options:\n";
     print "\n";
@@ -320,13 +330,14 @@ if (@opt_run || $opt_install || $opt_reset || $opt_clear || @opt_exec) {
 }
 
 if ($opt_findtests) {
-    # --findtests <d> expands in a bunch of --testsdir <sd> where sd is every subdirectory of d (or d itself) that contains
-    #   *exclusively* (and at least one) subdirectories that are valid cth tests, that is, contain executable files named "run".
+    # --findtests <d> expands in a bunch of --testsdir <sd> where sd is every subdirectory of d (or d itself) that contain
+    #   at least one subdirectory that is a valid cth test, that is, contains an executable file named "run".
     my $abs_ft = Cwd::abs_path($opt_findtests);
     if (!defined $abs_ft || !-d $abs_ft) {
         print "ERROR: --findtests directory not found: $opt_findtests (current: $root_dir)\n";
         exit 1;
     }
+    push @findtests_dirs, $abs_ft;
     if ($opt_verbose) { print "Scanning for tests directories under '$abs_ft' due to --findtests ...\n"; }
     my @found_tests_dirs;
     my @stack = ($abs_ft);
@@ -344,15 +355,38 @@ if ($opt_findtests) {
                 }
             }
             closedir($dh);
-            my $all_subdirs_have_run_file = scalar(@subdirs) > 0; # must have at least 1 test subdir
+
+            # ---------------------------------------------------------------------------
+            # Removed the requirement that all directories in a tests dir have to
+            #   be tests (with executable 'run' files), as the existence of testlets
+            #   now invites users to put test component subdirs inside of tests dirs.
+            # ---------------------------------------------------------------------------
+            #
+            #my $all_subdirs_have_run_file = scalar(@subdirs) > 0; # must have at least 1 test subdir
+            #foreach my $subdir (@subdirs) {
+            #    my $run_file = "$subdir/run";
+            #    if (!-e $run_file || !-x $run_file) {
+            #        $all_subdirs_have_run_file = 0;
+            #        last;
+            #    }
+            #}
+            #if ($all_subdirs_have_run_file) {
+            #    push @found_tests_dirs, $dir; # for verbose printing only
+            #    push @opt_testsdir, $dir;     # apply it (emulate -t <dir>)
+            #}
+            #
+            # ---------------------------------------------------------------------------
+            # Instead, now require just one subdir to be a test dir
+            # ---------------------------------------------------------------------------
+            my $one_subdir_has_run_file = 0;
             foreach my $subdir (@subdirs) {
                 my $run_file = "$subdir/run";
-                if (!-e $run_file || !-x $run_file) {
-                    $all_subdirs_have_run_file = 0;
+                if (-e $run_file && -x $run_file) {
+                    $one_subdir_has_run_file = 1;
                     last;
                 }
             }
-            if ($all_subdirs_have_run_file) {
+            if ($one_subdir_has_run_file) {
                 push @found_tests_dirs, $dir; # for verbose printing only
                 push @opt_testsdir, $dir;     # apply it (emulate -t <dir>)
             }
@@ -904,6 +938,17 @@ if (defined $ENV{PERL5LIB} && $ENV{PERL5LIB} ne '') {
     $ENV{PERL5LIB} = join(':', @pm_directories);
 }
 if ($opt_verbose) { print "Perl tests will receive environment variable PERL5LIB: $ENV{PERL5LIB}\n"; }
+
+# ------------------------------------------------------------------------------
+# Set the CTH_PATH environment variable to all directories passed to -t and
+#   --findtests.
+# Any previous content of this variable is discarded.
+# ------------------------------------------------------------------------------
+
+$ENV{CTH_PATH} = join(':', @findtests_dirs);
+$ENV{CTH_PATH} .= ':' . join(':', @tests_dirs);
+
+if ($opt_verbose) { print "Tests will receive environment variable CTH_PATH: $ENV{CTH_PATH}\n"; }
 
 # ------------------------------------------------------------------------------
 # Process all --exec commands.
