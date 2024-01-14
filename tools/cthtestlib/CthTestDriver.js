@@ -95,6 +95,32 @@ function cth_set_cleos_provider(driver) {
 }
 
 // -----------------------------------------------------------------------
+// cth_get_cleos_wallet_url
+//
+// Return the full argument to cleos --wallet-url (unix:///.../keosd.sock)
+//   that was computed after cth_set_cleos_provider, or undefined on
+//   error (i.e. if it was never set).
+// -----------------------------------------------------------------------
+
+function cth_get_cleos_wallet_url() {
+
+    // NOTE: There is an argument for wanting this to work without a cleos
+    //       provider driver being set, instead picking up the system's
+    //       default cleos wallet directory. This is expressly avoided in
+    //       cth's approach to automated testing however, because that's
+    //       non-reproducible. We want to be in control of the wallet,
+    //       which means we always want to set --wallet-url to a cth
+    //       cleos driver.
+
+    if (cleosProviderWorkingDir === undefined) {
+        console.log("ERROR: cth_get_cleos_wallet_url: cleos provider was not set");
+        return;
+    }
+
+    return `unix://${cleosProviderWorkingDir}/keosd.sock`;
+}
+
+// -----------------------------------------------------------------------
 // cth_set_cleos_url
 //
 // This sets the --url= parameter value to be passed to cleos in every
@@ -562,6 +588,7 @@ module.exports = {
     cth_get_root_dir,
     cth_skip_test,
     cth_set_cleos_provider,
+    cth_get_cleos_wallet_url,
     cth_set_cleos_url,
     cth_cleos,
     cth_cleos_pipe,

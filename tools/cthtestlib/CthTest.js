@@ -32,6 +32,7 @@ const DEVELOPER_PUBLIC_KEY = "EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW
 //
 // Defines and writes the following global variables:
 //   cth_hotstart_instance_port: P2P port of the started nodeos
+//   cth_hotstart_instance_port_http: HTTP port of the started nodeos
 // -----------------------------------------------------------------------
 
 function init(startArgs) {
@@ -71,14 +72,15 @@ function init(startArgs) {
     cth_hotstart_instance_port = parseInt(outInstance, 10);
 
     // point cth_cleos to the correct nodeos URL (hotstart invariant: web port is P2P port + 10000)
-    const instancePortHttp = cth_hotstart_instance_port + 10000;
-    const retUrl = cth_set_cleos_url("http://127.0.0.1:" + instancePortHttp);
+    cth_hotstart_instance_port_http = cth_hotstart_instance_port + 10000;
+    const retUrl = cth_set_cleos_url("http://127.0.0.1:" + cth_hotstart_instance_port_http);
     if (retUrl) {
         console.log("ERROR: TEST: init(): cth_set_cleos_url failed.");
         return -1;
     }
 
     console.log("TEST: init(): OK");
+    return 0;
 }
 
 // -----------------------------------------------------------------------

@@ -1297,8 +1297,10 @@ if ($sum_fail > 0 && open(my $failed_log, '>', $failed_summary_log_file)) {
 
         for (my $i = 0; $i < scalar(@run_log_lines); $i++) {
             my $line = $run_log_lines[$i];
-            if ($line =~ /error:|warning:/i) {
-                $line =~ s/(error:|warning:)/${RED}${1}${DEF}/gi;
+            #if ($line =~ /error:|warning:/i) {
+            if ($line =~ /error:/i) {
+                #$line =~ s/(error:|warning:)/${RED}${1}${DEF}/gi;
+                $line =~ s/(error:)/${RED}${1}${DEF}/gi;
                 $run_log_lines[$i] = $line;
                 $lines_to_print{$i} = 1;
                 for my $j (reverse 0..$i) {
