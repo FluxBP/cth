@@ -261,7 +261,7 @@ sleep(3);
 
 # Deal with eosio.system bullshit where you have to retry setting the system contract because of transaction time randomly being exceeded.
 my $set_system_contract_successful = 0;
-for (my $i = 1; $i <= 10; $i++) {
+for (my $i = 1; $i <= 2; $i++) {
     print "Attempting to set the system contract...\n";
     my $cmd = "$cleos set contract eosio ../../tools/reference-contracts/build/contracts/eosio.system/ 2>&1";
     my $o = `$cmd`;
@@ -345,7 +345,7 @@ print "Waiting for chain.log tail to show signs of a fully started blockchain (u
 
 my $start_successful = 0;
 
-my $max_tries_bp = 30;
+my $max_tries_bp = 2;
 
 for (my $i = 1; $i <= $max_tries_bp; $i++) {
     print "Try $i/$max_tries_bp: ";
