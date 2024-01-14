@@ -27,6 +27,16 @@ sudo ./install_dependencies.sh
 
 `cth --help` displays the manual.
 
+# Troubleshooting
+
+If `cth` seems to hang, you can run the following to kill all running `nodeos` processes on your machine:
+
+```
+cth --reset
+```
+
+This kills ALL `nodeos` processes, not just the ones started by `cth`. This remedies a known issue with the `coldstart` driver, which is currently hardcoded to use the default `nodeos` HTTP API port (8888).
+
 # Customization
 
 The `cth` distribution is a template. You can fork it to include your own drivers, libraries, and tools for your own project.
