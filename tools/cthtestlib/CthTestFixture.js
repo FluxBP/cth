@@ -333,6 +333,7 @@ function fixtureFinish(error) {
 
         if (failCount > 0) {
             console.log(`ERROR: TEST: fixtureFinish(): failed ${failCount} tests of ${totalCount} total.`);
+            console.log("ERROR: TEST: fixtureFinish(): process.exit(1)");
             process.exit(1);
         } else {
             console.log(`TEST: fixtureFinish(): completed all (${totalCount}) tests successfully.`);
