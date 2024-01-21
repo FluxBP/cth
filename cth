@@ -104,6 +104,8 @@ sub chdir_original() { chdir $original_dir or die "ERROR: cth: can't change to t
 my $root_dir = $RealBin;
 sub chdir_root() { chdir $root_dir or die "ERROR: cth: can't change to cth's home root directory '$root_dir': $!"; }
 
+my $plugin_dir;
+
 my $default_tests_dir = "tests";
 
 my $drivers_dir = "drivers";
@@ -185,6 +187,7 @@ my $opt_force = 0;
 my $opt_help = 0;
 my $opt_install = 0;
 my $opt_jobs = $cpus;
+my $opt_plugin;
 my $opt_reset = 0;
 my @opt_run;
 my @opt_testsdir;
@@ -201,6 +204,7 @@ GetOptions(
     "install|i"    => \$opt_install,
     "jobs|j=s"     => \$opt_jobs,
     "option|o=s%"  => sub { push @opt_option, [$_[1], $_[2]] },
+    "plugin=s"     => \$opt_plugin,
     "reset"        => \$opt_reset,
     "run=s{3}"     => sub { push @opt_run, $_[1]; },
     "switch|s=s%"  => sub { push @opt_switch, [$_[1], $_[2]] },
@@ -271,10 +275,10 @@ if ($opt_help) {
     print "  'cth -s target=hg2'. Values with e.g. '/' (illegal filename) not supported.\n";
     print "\n";
     print "Test library paths:\n";
-    print "  cth scans both its own 'tools/' subdirectory and the 'tools/' subdirectory\n";
-    print "  of the directory cth is invoked from for Perl and Javascript library dirs.\n";
-    print "  Those are added to PERL5LIB and NODE_PATH, allowing tests to import both\n";
-    print "  the standard cth test libraries and custom ones for your project.\n";
+    print "  cth scans its own 'tools/' subdirectory, 'tools/' under the directory it is\n";
+    print "  invoked from, and 'tools/' under the plugin directory (if any) for Perl and\n";
+    print "  Javascript library dirs. Those are added to PERL5LIB and NODE_PATH so that\n";
+    print "  tests can load both the cth test libraries and your custom test libraries.\n";
     print "\n";
     print "Testlet support:\n";
     print "  cth sets the CTH_PATH environment variable to every tests directory found,\n";
@@ -299,6 +303,7 @@ if ($opt_help) {
     print "  --jobs, -j <n>      Start at most <n> simultaneous jobs; default: $cpus\n";
     print "  --option, -o <k=v>  Pass a '-o \"k=v\"' parameter to all tests/installers\n";
     print "                      (note: switches are preferred over options)\n";
+    print "  --plugin <d>        Sets <d> as the application tester directory\n";
     print "  --reset             Run 'reset' on all drivers (doesn't run tests)\n";
     print "                      WARNING: 'reset' is forceful and it will likely kill\n";
     print "                      *ALL* running nodeos processes!\n";
@@ -327,6 +332,15 @@ if (@opt_run || $opt_install || $opt_reset || $opt_clear || @opt_exec) {
     }
 } else {
     if ($opt_verbose) { print "Will run tests (no installation/set-up/exec tasks detected).\n"; }
+}
+
+if ($opt_plugin) {
+    $plugin_dir = Cwd::abs_path($opt_plugin);
+    if (!defined $plugin_dir || !-d $plugin_dir) {
+        print "ERROR: --plugin directory not found: $opt_plugin (current: $root_dir)\n";
+        exit 1;
+    }
+    if ($opt_verbose) { print "Set plugin directory: $plugin_dir\n"; }
 }
 
 if ($opt_findtests) {
@@ -884,6 +898,7 @@ my @dirs_to_process;
 my @js_directories;
 @dirs_to_process = ("$root_dir/tools");
 if ($root_dir ne $original_dir && -d "$original_dir/tools") { push @dirs_to_process, "$original_dir/tools"; }
+if (defined $plugin_dir && $root_dir ne $plugin_dir && $original_dir ne $plugin_dir && -d "$plugin_dir/tools") { push @dirs_to_process, "$plugin_dir/tools"; }
 while (my $dir = shift @dirs_to_process) {
     opendir my $dh, $dir or die "Unable to open directory $dir: $!";
     my @files = readdir $dh;
@@ -915,6 +930,7 @@ if ($opt_verbose) { print "Node.js tests will receive environment variable NODE_
 my @pm_directories;
 @dirs_to_process = ("$root_dir/tools");
 if ($root_dir ne $original_dir && -d "$original_dir/tools") { push @dirs_to_process, "$original_dir/tools"; }
+if (defined $plugin_dir && $root_dir ne $plugin_dir && $original_dir ne $plugin_dir && -d "$plugin_dir/tools") { push @dirs_to_process, "$plugin_dir/tools"; }
 while (my $dir = shift @dirs_to_process) {
     opendir my $dh, $dir or die "Unable to open directory $dir: $!";
     my @files = readdir $dh;
