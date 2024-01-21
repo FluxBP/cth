@@ -232,7 +232,7 @@ function fixtureRun(testname) {
                     codeLine = `Code: ${error.code}\n`;
                     checkStr = `, '${error.message}' (${error.code})`;
                 } else {
-                    checkStr = `, '{error.message}'`;
+                    checkStr = `, '${error.message}'`;
                 }
                 console.log(`ERROR: TEST: fixtureRun(): caught ContractCheckError running '${testname}':\n${codeLine}Message: ${error.message}\n${error.stack}\n`);
             } else {
