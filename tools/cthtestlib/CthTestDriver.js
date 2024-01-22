@@ -525,12 +525,11 @@ function cth_call_driver(driver, command) {
             console.log("cth_call_driver: ------ end error dump ------");
         }
 
-        // We are not returning the entire error object with stdout/stderr.
-        // This is enough for now. To see these, just set DEBUG_TRACE.
+        const errStr = error.toString() + " (stdout: " + error.stdout.toString() + ", stderr: " + error.stderr.toString() + ")";
         if (error.status == 0) {
-            return [error.toString(), -1];
+            return [errStr, -1];
         } else {
-            return [error.toString(), error.status];
+            return [errStr, error.status];
         }
     }
 }

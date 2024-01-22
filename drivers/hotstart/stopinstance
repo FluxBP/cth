@@ -28,6 +28,52 @@ stop_and_clear_instance() {
     echo -ne "\nnodeos stopped.\n"
   fi
 
+
+  # Stop the instance
+  if [ -f "./nodeos.pid" ]; then
+    pid=$(cat "./nodeos.pid")
+    echo $pid
+
+    # Send the INT signal to the process
+    kill -INT $pid
+    echo -ne "Stopping nodeos..."
+
+    # Wait up to 5 seconds for the process to respond to TERM signal
+    timeout=5
+    while [ $timeout -gt 0 ]; do
+      if [ ! -d "/proc/$pid/fd" ]; then
+        echo -ne "\nnodeos stopped (-INT).\n"
+        rm -r "./nodeos.pid"
+        break
+      fi
+      echo -ne "."
+      sleep 1
+      ((timeout--))
+    done
+
+    if [ $timeout -le 0 ]; then
+      echo -ne "\nNodeos did not respond to TERM signal in time. Forcefully terminating with KILL signal..."
+      kill -KILL $pid
+
+      # Wait for the process to respond to KILL signal
+      timeout=5
+      while [ $timeout -gt 0 ]; do
+        if [ ! -d "/proc/$pid/fd" ]; then
+          echo -ne "\nnodeos stopped (-KILL).\n"
+          rm -r "./nodeos.pid"
+          break
+        fi
+        echo -ne "."
+        sleep 1
+        ((timeout--))
+      done
+
+      if [ $timeout -le 0 ]; then
+        echo -ne "\nERROR: could not stop nodeos even with kill -KILL.\n"
+      fi
+    fi
+  fi
+
   # anyways go back to the root instances dir, so we can stop and clear the others
   cd ..
 
@@ -150,4 +196,3 @@ else
 
   stop_and_clear_instance "$port"
 fi
-
