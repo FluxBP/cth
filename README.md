@@ -25,17 +25,17 @@ sudo ./install_dependencies.sh
 
 `cth` without arguments runs the tests (test drivers must have already been installed once).
 
-`cth --help` displays the manual.
+`cth --help` displays usage instructions.
 
 # Troubleshooting
 
-If `cth` seems to hang, you can run the following to kill all running `nodeos` processes on your machine:
+The `coldstart` driver binds to local TCP ports `8888` (for the `nodeos` HTTP API port) and `10000` (for the `nodeos` P2P port) when starting, and it will refuse to start if either of these local TCP ports is already taken. In that case, just make sure to free up these local TCP ports beforehand by terminating the competing processes.
+
+Port `8888` is also the default `nodeos` HTTP API port, so if that local TCP port is bound to another `nodeos` instance, one quick solution is to run the following command, which kills ALL running `nodeos` processes on your machine:
 
 ```
 cth --reset
 ```
-
-This kills ALL `nodeos` processes, not just the ones started by `cth`. This remedies a known issue with the `coldstart` driver, which is currently hardcoded to use the default `nodeos` HTTP API port (8888).
 
 # Customization
 

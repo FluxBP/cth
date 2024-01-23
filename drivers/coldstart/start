@@ -20,6 +20,7 @@ use warnings;
 use FindBin '$RealBin';
 use lib "$RealBin/../../tools/cth-utils";
 use CthUtils;
+use IO::Socket::INET; # for checking local ports 8888/10000 for availability
 
 $| = 1;  # Turn on auto-flush for STDOUT (Perl doesn't do this by default)
 
@@ -58,6 +59,36 @@ my $log_file = "start.log";
 if (-e $log_file) { unlink $log_file or die "ERROR: coldstart start: Could not delete '$log_file': $!"; }
 open(STDOUT, "| tee -a $log_file") or die "ERROR: coldstart start: Can't open '$log_file': $!"; # Redirect STDOUT to tee
 open(STDERR, ">&STDOUT"); # Redirect STDERR to STDOUT
+
+# --------------------------------------------------------------------------------------------
+# This driver as it is written now does not work if local TCP ports 8888 and 10000 cannot be
+#   bound, as the nodeos instance it creates is hardcoded to these ports. It's better to
+#   check here if these ports are available and error out if they aren't than have the driver
+#   e.g. loop forever when interacting with another nodeos process in these ports (already
+#   happened once).
+# --------------------------------------------------------------------------------------------
+
+sub check_port {
+    my $port = shift;
+    my $socket = IO::Socket::INET->new(LocalAddr => 'localhost', LocalPort => $port, Proto => 'tcp', Listen => 1, Reuse => 1);
+    if ($socket) {
+        close $socket;
+    } else {
+        my $pid = `lsof -i tcp:$port -t`;
+        my $pid_msg = '';
+        if ($pid) {
+            chomp $pid;
+            $pid_msg = "(PID: $pid) ";
+        }
+        print "ERROR: coldstart start: local TCP port $port is NOT available for binding, but coldstart start requires it; please terminate the process " . $pid_msg . "that is allocating it before calling coldstart start again.\n";
+        exit 1;
+    }
+}
+
+# Will check port 8888 (cleos --url API endpoint, HTTP port configured for nodeos)
+#   and port 10000 (P2P port configured for nodeos).
+check_port(8888);
+check_port(10000);
 
 # --------------------------------------------------------------------------------------------
 # The working_dir is relative to the script's directory. Make sure to create it, then find it,
