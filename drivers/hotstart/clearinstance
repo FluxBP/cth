@@ -1,9 +1,17 @@
 #!/bin/bash
 
-# will stop and clear one of the hotstart instances under /local/hotstart/instances
-
-# This just forwards all of the arguments it receives to 'stop', and appends
-#   '--clear' to the list of switches so that stop will *also* rm -rf the instance.
+# --------------------------------------------------------------------------------------------
+# Driver: hotstart
+# Operation: clearinstance
+#
+# Stops and clears one hotstart instance by calling 'stopinstance --clear'.
+#
+# This must take as an argument either a '--label <LABEL-NAME>' or '--port <P2P-PORT-NUMBER>'
+#   argument to identify the instance to stop and clear. That argument will be forwarded to
+#   hotstart/stopinstance.
+#
+# See: hotstart/stopinstance
+# --------------------------------------------------------------------------------------------
 
 # first, be at this script's directory
 cd "$(dirname "$0")"

@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# --------------------------------------------------------------------------------------------
+# Driver: coldstart
+# Operation: stop
+#
+# This operation attempts to stop a nodeos process by sending a kill -TERM to it, and then
+#   a kill -KILL if it does not respond to the previous one in 5 seconds. The PID to kill
+#   is obtained from the cth/local/coldstart/nodeos.pid file, which is created by the
+#   coldstart/start script.
+#
+# If coldstart/start is called again after this, the node will resume where it left off.
+# --------------------------------------------------------------------------------------------
+
 # Make sure the current working directory is the driver's working directory
 # at ../../local/coldstart/
 cd "$(dirname "$0")"
@@ -12,15 +24,15 @@ if [ -f "./nodeos.pid" ]; then
     pid=$(cat "./nodeos.pid")
     echo $pid
 
-    # Send the INT signal to the process
-    kill -INT $pid
+    # Send a graceful termination signal to the process
+    kill -TERM $pid
     echo -ne "Stopping nodeos..."
 
     # Wait up to 5 seconds for the process to respond to TERM signal
     timeout=5
     while [ $timeout -gt 0 ]; do
         if [ ! -d "/proc/$pid/fd" ]; then
-            echo -ne "\nnodeos stopped (-INT).\n"
+            echo -ne "\nnodeos stopped (-TERM).\n"
             # Remove the pid file
             rm -r "./nodeos.pid"
             # done

@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# --------------------------------------------------------------------------------------------
+# Driver: cleos-driver
+# Operation: clear
+#
+# Stops the associated keosd process (recorded in 'keosd.pid') and deletes the wallet files.
+# --------------------------------------------------------------------------------------------
+
 # make sure the current working dir is the cleos-driver working dir
 # at ../../local/cleos-driver/
 cd "$(dirname "$0")"
@@ -31,4 +38,3 @@ rm -f default.wallet.password
 rm -f keosd.sock
 rm -f keosd.log
 rm -f wallet.lock
-

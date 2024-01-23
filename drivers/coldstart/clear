@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# --------------------------------------------------------------------------------------------
+# Driver: coldstart
+# Operation: clear
+#
+# This operation ensures the coldstart nodeos instance is stopped (by calling coldstart/stop)
+#   and then clears the cth/local/coldstart/ directory.
+#
+# If coldstart/start is called again after this, it will start over the state from scratch.
+# --------------------------------------------------------------------------------------------
+
 # go to driver's dir to call stop
 cd "$(dirname "$0")"
 
@@ -13,7 +23,7 @@ if ! cd "../../local/coldstart"; then
   exit 0
 fi
 
-# clear node data
+# clear node data -- after this, coldstart/start will start over from scratch
 
 rm -rf ./data
 rm -rf ./protocol_features

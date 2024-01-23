@@ -4,8 +4,16 @@
 # Driver: hotstart
 # Operation: install
 #
-# start coldstart to generate a nodeos data directory directory and save it on /local/
-#   to start multiple hotstart instances later.
+# This driver depends on two drivers:
+# - coldstart: to create a nodeos state (data) directory for a fully-booted and activated
+#     Antelope blockchain.
+# - cleos-driver: has the wallet file and a running keosd (from /local/cleos-driver/)
+#
+# Starts coldstart to generate a nodeos data directory and then saves a copy of it to
+#   local/hotstart/nodeos-template/*, so that it can be used by hotstart/start later to
+#   start multiple nodeos instances at different local TCP ports.
+#
+# Calls coldstart/clear at the end to stop and wipe the coldstart nodeos instance.
 # --------------------------------------------------------------------------------------------
 
 use strict;

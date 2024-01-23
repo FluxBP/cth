@@ -4,15 +4,15 @@
 # Driver: coldstart
 # Operation: start
 #
-# This driver depends on one other driver:
-# - cleos-driver: has the wallet file and a running keosd (from /local/cleos-driver/)
+# What this operation does:
+# - Starts cleos-driver
+# - Starts nodeos (all producers in one node), logging the PID to nodeos.pid using
+#   local TCP ports 8888 (HTTP API) and 10000 (P2P), which must be available
+# - Deploys the system contracts and init chain for use (requires coldstart install to
+#   compile the Antelope reference contracts once)
+# - Elects 21 block producers (all on the same nodeos instance)
 #
-# What this driver does:
-# - Start cleos-driver
-# - Start nodeos (all producers in one node), logging the PID to nodeos.pid
-# - Boot system contracts and init chain for use (requires driver install to compile
-#   reference contracts once)
-# - Elect the 21 block producers
+# The nodeos instance uses cth/local/coldstart/ as its data directory.
 # --------------------------------------------------------------------------------------------
 
 use strict;
@@ -144,6 +144,9 @@ sub do_stop {
 # --------------------------------------------------------------------------------------------
 # First, make sure the driver does not already have its nodeos running.
 # This is a very simple driver that can only run one blockchain node at a time.
+# (This is currently never reached because coldstart uses fixed local ports, and thus the
+#   check for local ports 8888/10000 being detected as used will trigger first, but this
+#   provides an additional layer of protection against an attempt to start it twice.)
 # --------------------------------------------------------------------------------------------
 
 if (-e $nodeos_pid_file) {

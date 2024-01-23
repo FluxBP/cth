@@ -1,27 +1,31 @@
 #!/usr/bin/perl
 
 # --------------------------------------------------------------------------------------------
-# Driver: doh-hotstart
+# Driver: hotstart
 # Operation: start
 #
-# This driver depends on two drivers:
-# - coldstart: to create a nodeos state (data) directory for a fully-booted and activated
-#     Antelope blockchain. This is done at installation time. At runtime, this dependency
-#     doesn't exist.
-# - cleos-driver: has the wallet file and a running keosd (from /local/cleos-driver/)
+# This script starts a new nodeos instance, allocating local TCP ports from the ranges:
+#   10001 and up: for nodeos P2P port
+#   20001 and up: for nodeos HTTP API port
 #
-# The template data directory is created during driver installation using the (already
-#   installed) coldstart driver.
+# So the first running and persisted hotstart instance will try to allocate the port pair
+#   (P2P: 10001, HTTP: 20001), and the second one (10002, 20002), etc.
 #
-# This driver supports parallel execution. It will create a directory
-#   /local/hotstart/instances/<nodeos-p2p-port-number> for a local port that isn't taken,
-#   and if it can't create the directory, it will try again until it can find a port
-#   number that isn't taken by another hotstart instance (synchronized via folder creation).
-#   When successful, that directory will be where the new nodeos will be started. When
-#   successful, the allocatedd port number is returned in the last line of output of this
-#   script in a well-known format that can be captured by the caller.
+# The blockchain state (data directory) for each instance is seeded from
+#   cth/local/hotstart/nodeos-template/, which is referred to as the "template data
+#   directory", which is created by hotstart/install. The data directory is named
+#   after the P2P port allocated for the nodeos instance, and sits at
+#   cth/local/hotstart/instances/<P2P-PORT-NUMBER>/.
 #
-# The HTTP port number is the P2P port number + 10000 (example: p2p:10000, HTTP:20000).
+# This script takes one mandatory argument, which is "--label <TEST-LABEL>" (for example,
+#   'start --label mylabel'). The test label is any unique string that will identify the
+#   nodeos instance, and which will be stored in the
+#   cth/local/hotstart/instances/<P2P-PORT-NUMBER>/label file. After hotstart/start, to
+#   find out what P2P port was allocated, you can call the hotstart/findinstance script
+#   with the instance label string as the sole argument, e.g.: 'findinstance mylabel'.
+#   The findinstance script returns a single line of text containing the P2P port number
+#   of the first instance found that matches that label string, or a negative number if
+#   it can't find it for some reason.
 # --------------------------------------------------------------------------------------------
 
 use strict;

@@ -1,5 +1,17 @@
 #!/usr/bin/perl
 
+# --------------------------------------------------------------------------------------------
+# Driver: coldstart
+# Operation: install
+#
+# This driver depends on one other driver:
+# - cleos-driver: has the wallet file and a running keosd (from /local/cleos-driver/)
+#
+# This operation compiles cth/tools/reference-contracts/* (which is a submodule) once,
+#   touching a BUILD_SUCCESS file in that directory to signal a successful compilation
+#   and avoid recompiling the Antelope system contracts needlessly.
+# --------------------------------------------------------------------------------------------
+
 $| = 1;
 
 use strict;

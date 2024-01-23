@@ -1,15 +1,19 @@
 #!/bin/bash
 
-# will stop and clear ALL of the hotstart instances under /local/hotstart/instances
-
-# This just forwards all of the arguments it receives to 'clear', and appends
-#   '--all' to the list of switches so that ALL instances will be cleared.
+# --------------------------------------------------------------------------------------------
+# Driver: hotstart
+# Operation: clear
+#
+# Stops and clears all hotstart instances by calling 'stopinstance --all --clear'.
+#
+# See: hotstart/stopinstance
+# --------------------------------------------------------------------------------------------
 
 # first, be at this script's directory
 cd "$(dirname "$0")"
 
-# Append the --all argument to the command-line arguments
-args=("$@" "--all")
+# Append the --all --clear arguments to the command-line arguments
+args=("$@" "--all" "--clear")
 
 # Execute the 'stop' script with the modified arguments
-./clearinstance "${args[@]}"
+./stopinstance "${args[@]}"

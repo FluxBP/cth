@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# --------------------------------------------------------------------------------------------
+# Driver: hotstart
+# Operation: reset
+#
+# Kills all 'nodeos' processes in the local machine, then removes the entire hotstart
+#   instances directory (cth/local/hotstart/instances/), as well as the instances directory
+#   lock file (cth/local/hotstart/instances/lock_file) which serializes access to it.
+# --------------------------------------------------------------------------------------------
+
 cd "$(dirname "$0")"
 if ! cd "../../local/hotstart"; then
   echo "hotstart reset: cannot change directory to local/hotstart; assuming no running hotstart session to reset"

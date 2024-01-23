@@ -1,5 +1,35 @@
 #!/bin/bash
 
+# --------------------------------------------------------------------------------------------
+# Driver: hotstart
+# Operation: stopinstance
+#
+# Usage:
+#
+#   stopinstance --all
+#     Stops all hotstart instances.
+#
+#   stopinstance --all --clear
+#     Stops all hotstart instances and clears them all.
+#
+#   stopinstance --label <LABEL-NAME>
+#     Stops one hotstart instance by label name.
+#
+#   stopinstance --label <LABEL-NAME> --clear
+#     Stops one hotstart instance by label name and clears it.
+#
+#   stopinstance --port <P2P-PORT-NUMBER>
+#     Stops one hotstart instance by P2P port number.
+#
+#   stopinstance --port <P2P-PORT-NUMBER> --clear
+#     Stops one hotstart instance by P2P port number and clears it.
+#
+# This script works as a back-end to all other stop/clear hotstart scripts. It can be used
+#   to just stop either one or all hotstart instances, and optionally also clear them. It
+#   can find a specific instance based on the instance label (passed to hotstart/start) or
+#   the instance's unique local P2P port number.
+# --------------------------------------------------------------------------------------------
+
 # Function to stop and clear an instance
 stop_and_clear_instance() {
   local port="$1"
@@ -17,32 +47,16 @@ stop_and_clear_instance() {
   if [ -f "./nodeos.pid" ]; then
     pid=$(cat "./nodeos.pid")
     echo $pid
-    kill $pid
-    rm -r "./nodeos.pid"
-    echo -ne "Stopping nodeos.."
-    while true; do
-      [ ! -d "/proc/$pid/fd" ] && break
-      echo -ne "."
-      sleep 1
-    done
-    echo -ne "\nnodeos stopped.\n"
-  fi
 
-
-  # Stop the instance
-  if [ -f "./nodeos.pid" ]; then
-    pid=$(cat "./nodeos.pid")
-    echo $pid
-
-    # Send the INT signal to the process
-    kill -INT $pid
+    # Send the TERM signal to the process
+    kill -TERM $pid
     echo -ne "Stopping nodeos..."
 
     # Wait up to 5 seconds for the process to respond to TERM signal
     timeout=5
     while [ $timeout -gt 0 ]; do
       if [ ! -d "/proc/$pid/fd" ]; then
-        echo -ne "\nnodeos stopped (-INT).\n"
+        echo -ne "\nnodeos stopped (-TERM).\n"
         rm -r "./nodeos.pid"
         break
       fi

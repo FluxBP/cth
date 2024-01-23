@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# --------------------------------------------------------------------------------------------
+# Driver: coldstart
+# Operation: reset
+#
+# This calls coldstart/clear and, in addition, kills all "nodeos" processes in the local
+#   machine.
+# --------------------------------------------------------------------------------------------
+
 cd "$(dirname "$0")"
 if ! cd "../../local/coldstart"; then
   echo "coldstart reset: cannot change directory to local/coldstart; assuming no running coldstart session to reset"
