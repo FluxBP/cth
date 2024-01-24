@@ -161,6 +161,10 @@ my $DO_NOT_RUN_TESTS = 0;
 # if any setup/instalation task fails, set this so that tests will refuse to run
 my @FAILED_SETUP_TASKS;
 
+# Global variables to store original STDOUT and STDERR in case of --quiet
+my $QUIET_ORIGINAL_STDOUT;
+my $QUIET_ORIGINAL_STDERR;
+
 # ------------------------------------------------------------------------------
 # Find out the default number of parallel jobs
 # ------------------------------------------------------------------------------
@@ -188,6 +192,7 @@ my $opt_help = 0;
 my $opt_install = 0;
 my $opt_jobs = $cpus;
 my $opt_plugin;
+my $opt_quiet = 0;
 my $opt_reset = 0;
 my @opt_run;
 my @opt_testsdir;
@@ -205,6 +210,7 @@ GetOptions(
     "jobs|j=s"     => \$opt_jobs,
     "option|o=s%"  => sub { push @opt_option, [$_[1], $_[2]] },
     "plugin=s"     => \$opt_plugin,
+    "quiet"        => \$opt_quiet,
     "reset"        => \$opt_reset,
     "run=s{3}"     => sub { push @opt_run, $_[1]; },
     "switch|s=s%"  => sub { push @opt_switch, [$_[1], $_[2]] },
@@ -212,6 +218,26 @@ GetOptions(
     "verbose|v"    => \$opt_verbose
 
 ) or die "ERROR: cth: Error in command line arguments.\n";
+
+# Subroutine to redirect STDOUT and STDERR to null
+sub silence_output {
+    open($QUIET_ORIGINAL_STDOUT, ">&STDOUT") or die "Can't duplicate STDOUT: $!";
+    open($QUIET_ORIGINAL_STDERR, ">&STDERR") or die "Can't duplicate STDERR: $!";
+    open(STDOUT, '>', '/dev/null') or die "Can't redirect STDOUT: $!";
+    open(STDERR, '>', '/dev/null') or die "Can't redirect STDERR: $!";
+}
+
+# Subroutine to restore STDOUT and STDERR
+sub restore_output {
+    open(STDOUT, ">&", $QUIET_ORIGINAL_STDOUT) or die "Can't restore STDOUT: $!";
+    open(STDERR, ">&", $QUIET_ORIGINAL_STDERR) or die "Can't restore STDERR: $!";
+}
+
+# if --quiet is detected the command-line, we are going to suppress all output except
+#   for --run command output.
+if ($opt_quiet) {
+    silence_output();
+}
 
 # keys must be azAZ09_ only
 foreach my $pair (@opt_switch) {
@@ -304,6 +330,7 @@ if ($opt_help) {
     print "  --option, -o <k=v>  Pass a '-o \"k=v\"' parameter to all tests/installers\n";
     print "                      (note: switches are preferred over options)\n";
     print "  --plugin <d>        Sets <d> as the application tester directory\n";
+    print "  --quiet             Suppresses all output except the output of --run\n";
     print "  --reset             Run 'reset' on all drivers (doesn't run tests)\n";
     print "                      WARNING: 'reset' is forceful and it will likely kill\n";
     print "                      *ALL* running nodeos processes!\n";
@@ -871,9 +898,26 @@ while (scalar(@opt_run) > 0) {
     my $cmd = "$exe $parameters";
     $cmd =~ s/\s+$//; # remove whitespace
 
+    # if --quiet, we want to temporarily enable output here
+    if ($opt_quiet) {
+        restore_output();
+    }
+
     my $ret = system("./" . "$cmd 2>&1");
+
+    # now that the executed command is done printing, we return to the cth tool being absolutely quiet
+    if ($opt_quiet) {
+        silence_output();
+    }
+
     if ($ret) {
-        die "ERROR: cth: system('$cmd') returned error: $ret\n";
+        print "\nERROR: cth: system('$cmd') returned error: $ret\n";
+
+        # ret is the 16-bit value, get the 8-bit exit code instead
+        my $run_exit_code = $ret >> 8;
+
+        # emulate the nonzero exit code of the program we just executed to the caller
+        exit $run_exit_code;
 
         # We are dying on any failed --run, so this is pointless.
         # --run is really the user doing manual installations, so in that case we want to fail-fast for sure.
