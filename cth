@@ -352,9 +352,9 @@ if ($opt_verbose) { print "Working directory (test root): $root_dir\n"; }
 
 if (@opt_run || $opt_install || $opt_reset || $opt_clear || @opt_exec) {
     if ($opt_force) {
-        print "Installation/set-up/exec tasks detected but --force was specified. Will run tests if all installation/set-up/exec tasks are succesful.\n";
+        if ($opt_verbose) { print "Installation/set-up/exec tasks detected but --force was specified. Will run tests if all installation/set-up/exec tasks are succesful.\n"; }
     } else {
-        print "Installation/set-up/exec tasks detected. Will NOT run any tests.\n";
+        if ($opt_verbose) { print "Installation/set-up/exec tasks detected. Will NOT run any tests.\n"; }
         $DO_NOT_RUN_TESTS = 1;
     }
 } else {
@@ -501,22 +501,20 @@ sub get_switch_value {
     return; # undef
 }
 
-print "Global parameters given to all tests/installers:\n\n";
-foreach my $pair (@opt_switch) {
-    my ($key, $value) = @$pair;
-    print "  Switch: \"$key\" = \"$value\" (--$key \"$value\")\n";
-    if ($global_test_or_installer_args ne '') { $global_test_or_installer_args .= ' '; }
-    $global_test_or_installer_args .= qq|--$key "$value"|;
-}
-foreach my $pair (@opt_option) {
-    my ($key, $value) = @$pair;
-    print "  Option: \"$key\" = \"$value\" (-o \"$key=$value\")\n";
-    if ($global_test_or_installer_args ne '') { $global_test_or_installer_args .= ' '; }
-    $global_test_or_installer_args .= qq|-o "$key=$value"|;
-}
-if ($global_test_or_installer_args eq '') {
-    print "  No parameters to be passed to tests/installers (neither switches nor options).\n\n";
-} else {
+if (@opt_switch || @opt_option) {
+    print "Global parameters given to all tests/installers:\n\n";
+    foreach my $pair (@opt_switch) {
+        my ($key, $value) = @$pair;
+        print "  Switch: \"$key\" = \"$value\" (--$key \"$value\")\n";
+        if ($global_test_or_installer_args ne '') { $global_test_or_installer_args .= ' '; }
+        $global_test_or_installer_args .= qq|--$key "$value"|;
+    }
+    foreach my $pair (@opt_option) {
+        my ($key, $value) = @$pair;
+        print "  Option: \"$key\" = \"$value\" (-o \"$key=$value\")\n";
+        if ($global_test_or_installer_args ne '') { $global_test_or_installer_args .= ' '; }
+        $global_test_or_installer_args .= qq|-o "$key=$value"|;
+    }
     print "\n";
     if ($opt_verbose) { print "Parameter string for all tests/installers:\n  $global_test_or_installer_args\n\n"; }
 }
@@ -924,7 +922,7 @@ while (scalar(@opt_run) > 0) {
         #push @FAILED_SETUP_TASKS, $cmd;
     }
 
-    print "cth: --run '$cmd' finished successfully.\n\n";
+    print "\ncth: --run '$cmd' finished successfully.\n\n";
 }
 
 # ------------------------------------------------------------------------------
@@ -1075,10 +1073,12 @@ if (@FAILED_SETUP_TASKS) {
 }
 
 if ($DO_NOT_RUN_TESTS) {
-    print "\n";
-    print "Test running is disabled because installation/set-up/exec tasks were performed.\n";
-    print "  (to force test running after installation/set-up/exec tasks, use --force)\n";
-    print "\n";
+    if ($opt_verbose) {
+        print "\n";
+        print "Test running is disabled because installation/set-up/exec tasks were performed.\n";
+        print "  (to force test running after installation/set-up/exec tasks, use --force)\n";
+        print "\n";
+    }
     exit;
 }
 
