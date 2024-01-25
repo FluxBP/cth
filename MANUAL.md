@@ -45,7 +45,7 @@ Users should place their cth directory in their `$PATH`, so they can invoke cth 
 
 You can create a `myapp-tester` project on its own project directory and repository to extend cth to your Leap dapp.
 
-Usually, you will want to create a `tools/` subdirectory under that project directory, and write an e.g. Javascript library (not a module; just a plain .js file, for example, that can be `require()`'d) that provides functions that can be invoked by the shebang Javascript `run` files that implement your automated tests. Note that those custom libraries will already have access to all cth test libraries by default, since those would already be in the e.g. `NODE_PATH` so your test libraries can just load them, just like the test `run` scripts would. This allows your app's test library to wrap cth's test library calls, allowing you to provide e.g. a custom test initialization and test finish calls that would manage calling the cth init and finish functions internally, while adding more to the init and finish events.
+Usually, you will want to create a `tools/` subdirectory under that project directory, and write an e.g. Javascript library (not a module; just a subdirectory with plain .js file, for example, that can be `require()`'d) that provides functions that can be invoked by the shebang Javascript `run` files that implement your automated tests. Note that those custom libraries will already have access to all cth test libraries by default, since those would already be in the e.g. `NODE_PATH` so your test libraries can just load them, just like the test `run` scripts would. This allows your app's test library to wrap cth's test library calls, allowing you to provide e.g. a custom test initialization and test finish calls that would manage calling the cth init and finish functions internally, while adding more to the init and finish events.
 
 ## cth scripts
 
@@ -53,4 +53,21 @@ cth has an `-e` option which allows cth to run "scripts". Scripts are just execu
 
 ## local subdirectory
 
-the `local/` subdirectory inside of cth is the work directory, where drivers, scripts, tools, tests, etc. can all save and load data as needed. A good practice is for each component to create a subdirectory inside of `local/` that has its own component name, and under that, place other directories and files that it needs, but that is not mandatory. 
+the `cth/local/` subdirectory is cth's work directory, where drivers, scripts, tools, tests, etc. can all save and load data as needed. A good practice is for each component to create a subdirectory inside of `local/` that has its own component name, and under that, place other directories and files that it needs, but that is not mandatory or always the case.
+
+## cth test libraries
+
+The most developed test library is the Javascript test library (tools/cthtestlib/). It is not a module: it's just a collection of .js files that you can `require()` from your test `run` file or other pieces of automation that you build for your custom application tester plugin.
+
+The library is composed of the following:
+* `CthTestLib.js`: when `require()`'d, loads all the other `.js` files in the library, importing them in the global scope;
+* `CthTestDriver.js`: lower-level functions;
+* `CthTest.js`: test API with a good level of abstraction for writing one test per `nodeos` process;
+* `CthTestFixture.js`: built on top of previous component, this implements test fixtures, which allows a single `nodeos` instance to be reused to write multiple testcases that can be isolated from each other;
+* `CthTestReflect.js`: high-level test API that wraps deployed contracts with a proxy object that calls actions and queries tables on that contract.
+
+The components above expose varios functions that share a bit of duplicate functionality between each other, but that also allows the test writer to choose which API is a better fit for the kinds of tests they want to write.
+
+There are also Perl 5 test libraries (tools/cth-goodies and tools/cth-utils) that can be used to write tests, but these are mostly being used internally by the cth implementation.
+
+The `cth/samples/` subdirectory contains a few sample tests.
