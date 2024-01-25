@@ -12,7 +12,7 @@ If the return of a `run` file is `0`, that test has passed. If it is `32`, the t
 
 cth tests can be anything, but if they are Javascript or Perl 5 scripts, they can use the test libraries provided by cth, which allows one to write tests that interact with a `nodeos` instance using `cleos`, that is, to write tests for the Antelope Leap software stack.
 
-## Finding and loading test libaries
+## Finding and loading test libraries
 
 cth will help the `run` scripts load libraries by doctoring the environment variables `NODE_PATH` and `PERL5LIB` to include the path to all Perl and Javascript libraries that it finds.
 
@@ -64,7 +64,7 @@ The library is composed of the following:
 * `CthTestDriver.js`: lower-level functions;
 * `CthTest.js`: test API with a good level of abstraction for writing one test per `nodeos` process;
 * `CthTestFixture.js`: built on top of previous component, this implements test fixtures, which allows a single `nodeos` instance to be reused to write multiple testcases that can be isolated from each other;
-* `CthTestReflect.js`: high-level test API that wraps deployed contracts with a proxy object that calls actions and queries tables on that contract.
+* `CthTestReflect.js`: high-level test API that wraps a deployed contract with a proxy object that can call actions and query tables on that contract.
 
 The components above expose varios functions that share a bit of duplicate functionality between each other, but that also allows the test writer to choose which API is a better fit for the kinds of tests they want to write.
 
