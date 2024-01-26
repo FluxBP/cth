@@ -114,18 +114,20 @@ function assert(expr, desc) {
     if (expr === undefined) {
         throw new Error("assert(): expr argument is undefined");
     }
+    expr = expr.trim();
     if (desc === undefined) {
         desc = '';
-    } else if (desc.length > 0) {
-        desc = "'" + desc + "': ";
     }
-    expr = expr.trim();
+    let descPrefix = '';
+    if (desc.length > 0) {
+        descPrefix = desc + ": ";
+    }
     try {
         const result = eval(expr);
         if (result) {
-            fixtureLog(`assert(): ${desc}'${expr}' is true.`);
+            fixtureLog(`assert(): ${descPrefix}${expr} [true]`);
         } else {
-            throw new Error(`assert(): ${desc}'${expr}' is false.`);
+            throw new Error(`assert(): ${descPrefix}${expr} [false]`);
         }
     } catch (error) {
         throw new Error(`assert(): expression evaluation has thrown ${error.constructor.name}: '${error.message}\nexpr: ${expr}\ndesc: ${desc}\n${error.stack}\n`);
