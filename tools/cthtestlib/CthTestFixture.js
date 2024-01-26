@@ -4,9 +4,15 @@
 // The Test Fixture feature allow a single test script (cth "run" file)
 //   to define and run multiple actual tests.
 //
-// FIXME: comment
-// NOTE: fixtureInit() loads DoHTest.js as a convenience to the test
-//   script. It's not a dependency of this module per se.
+// NOTE: This module contributes higher-level utility functions, such as:
+//
+//   cleos()
+//   assert()
+//
+// ...that can be used by any test, regardless of whether that test is
+// using test fixtures (fixtureInit(), fixtureRun(), fixtureFinish())
+// or not. These are generally better for tests than cth_cleos() and
+// cth_assert().
 // -----------------------------------------------------------------------
 
 const fs = require('fs');
@@ -104,7 +110,6 @@ function cleosNoThrow(args) { return cth_cleos_pipe2(args); }
 // -----------------------------------------------------------------------
 // assert
 //
-// Non-garbage version of cth_assert().
 // Throws Error on any failure. Companion to cleos(), above.
 //
 // NOTE: expr comes first, then the descriptive string, which is optional.
@@ -125,6 +130,7 @@ function assert(expr, desc) {
     try {
         const result = eval(expr);
         if (result) {
+            // This is OK, even if you are not using fixtures.
             fixtureLog(`assert(): ${descPrefix}${expr} [true]`);
         } else {
             throw new Error(`assert(): ${descPrefix}${expr} [false]`);
@@ -158,10 +164,17 @@ function fixtureFailed(msg) {
 // fixtureLog
 //
 // Print msg with the current fixture name as prefix
+//
+// This works even if the fixtures feature is not being used (e.g. if
+//   this is called from assert(), but fixtures aren't being used).
 // -----------------------------------------------------------------------
 
 function fixtureLog(msg) {
-    console.log(`TEST [${_fixtureCurrent}]: ${msg}`);
+    let fixturePrefix = '';
+    if (_fixtureCurrent !== 'NO_FIXTURE') {
+        fixturePrefix = ` [${_fixtureCurrent}]`;
+    }
+    console.log('TEST' + ${fixturePrefix} + `: ${msg}`);
 }
 
 // -----------------------------------------------------------------------
