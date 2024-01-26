@@ -39,4 +39,4 @@ cth --reset
 
 # Customization
 
-The `cth` distribution is a template. You can fork it to include your own drivers, libraries, and tools for your own project.
+`cth` can be customized with additional test libraries that are specific to your application through a cth plugin. To do that, create a project directory or repository for your plugin, such as `mydapp-tester`, then create a `mydapp-tester/tools/` subdirectory in it, and inside that subdirectory, place Javascript or Perl libraries in it, following a similar organization of `cth/tools/`. Afterwards, all you have to do is use `cth --plugin <mydapp-tester-diretory-absolute-path>`, and your application's custom test libraries will be available for loading inside your testcases.
