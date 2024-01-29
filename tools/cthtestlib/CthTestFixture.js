@@ -174,7 +174,7 @@ function fixtureLog(msg) {
     if (_fixtureCurrent !== 'NO_FIXTURE') {
         fixturePrefix = ` [${_fixtureCurrent}]`;
     }
-    console.log('TEST' + ${fixturePrefix} + `: ${msg}`);
+    console.log('TEST' + fixturePrefix + `: ${msg}`);
 }
 
 // -----------------------------------------------------------------------
