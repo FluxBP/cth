@@ -337,8 +337,9 @@ if ($opt_help) {
     print "  --run <d> <e> <p>   Call driver <d>'s executable <s> with parameters <p>\n";
     print "                      All --run commands are processed after -c and -i\n";
     print "  --switch, -s <k=v>  Pass a '--k \"v\"' parameter to all tests/installers\n";
-    print "  --testsdir, -t <d>  Add <d> as a tests-to-run directory (default: 'tests')\n";
-    print "                      If used multiple times, runs tests on multiple dirs\n";
+    print "  --testsdir, -t <d>  Add <d> as a tests-to-run directory; if used multiple\n";
+    print "                      times, runs tests on multiple dirs; if no tests dir is\n";
+    print "                      specified (and no --findtests), defaults to '-t tests'\n";
     print "  --verbose, -v       Print more messages\n";
     print "\n";
     exit;
