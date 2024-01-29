@@ -1004,8 +1004,7 @@ if ($opt_verbose) { print "Perl tests will receive environment variable PERL5LIB
 # Any previous content of this variable is discarded.
 # ------------------------------------------------------------------------------
 
-$ENV{CTH_PATH} = join(':', @findtests_dirs);
-$ENV{CTH_PATH} .= ':' . join(':', @tests_dirs);
+$ENV{CTH_PATH} = join(':', @findtests_dirs, @tests_dirs);
 
 if ($opt_verbose) { print "Tests will receive environment variable CTH_PATH: $ENV{CTH_PATH}\n"; }
 
@@ -1188,7 +1187,16 @@ if (scalar(@testspecs) != 0) {
 unlink($failed_summary_log_file);
 
 #
-# Third, actually run the test list (after the test name filter)
+# Third, check if $tests_size == 0; if it is, there's nothing to do
+#
+
+if ($tests_size == 0) {
+    print "No tests to run.\n";
+    exit;
+}
+
+#
+# Fourth, actually run the test list (after the test name filter)
 #
 
 if ($opt_verbose) { print "\n"; }
