@@ -208,27 +208,50 @@ function fixtureRunning() {
 }
 
 // -----------------------------------------------------------------------
+// fixtureSetCleanupScript
+//
+// Set the name of the fixture cleanup script
+// -----------------------------------------------------------------------
+
+function fixtureSetCleanupScript(filename) {
+    fixtureCleanupFile = filename;
+}
+
+// -----------------------------------------------------------------------
 // fixtureRun
 //
 // Marks the start of a new test. If the test name ends with '.js', it
 //   will interpret the name as a javascript file name and execute it.
-// If there's a "fixtureCleanup.js" file in the test's current directory,
-//   it will be loaded and executed before the test.
+//
+// Parameters:
+//
+//   testname: name of the JS file to run with fixture test code
+//
+//   cleanup: if set to true, then, if there's a "fixtureCleanup.js" file
+//     (or whatever is set through fixtureSetCleanupScript), it will be
+//     loaded and executed before the test. If the file cannot be found
+//     in that case, then an error is thrown.
 // -----------------------------------------------------------------------
 
-function fixtureRun(testname) {
+function fixtureRun(testname, cleanup = false) {
     _fixtureCurrent = testname;
     let result = '';
-    if (fs.existsSync(fixtureCleanupFile)) {
-        console.log(`TEST: fixtureRun(): loading fixture cleanup script '${fixtureCleanupFile}'...`);
-        fixtureCleanupScript = fs.readFileSync(fixtureCleanupFile);
-        console.log(`TEST: fixtureRun(): clearing fixture before running '${testname}'...`);
-        try {
-            vm.runInThisContext(fixtureCleanupScript);
-        } catch (error) {
-            console.log(`ERROR: TEST: fixtureRun(): error clearing fixture before running '${testname}':\n${error.stack}\n`);
-            result = `Failed (can't clean up the fixture with '${fixtureCleanupScript}')`;
+    if (cleanup) {
+        if (! fs.existsSync(fixtureCleanupFile)) {
+            console.log(`ERROR: TEST: fixtureRun(): failed to clear fixture before running '${testname}': fixture cleanup script '${fixtureCleanupFile}' doesn't exist.\n`);
+            result = `Failed (can't find fixture cleanup script '${fixtureCleanupScript}')`;
             fixtureFailedCount++;
+        } else {
+            console.log(`TEST: fixtureRun(): loading fixture cleanup script '${fixtureCleanupFile}'...`);
+            fixtureCleanupScript = fs.readFileSync(fixtureCleanupFile);
+            console.log(`TEST: fixtureRun(): clearing fixture before running '${testname}'...`);
+            try {
+                vm.runInThisContext(fixtureCleanupScript);
+            } catch (error) {
+                console.log(`ERROR: TEST: fixtureRun(): error clearing fixture before running '${testname}':\n${error.stack}\n`);
+                result = `Failed (can't clean up the fixture with '${fixtureCleanupScript}')`;
+                fixtureFailedCount++;
+            }
         }
     }
     if (result === '') {
@@ -375,6 +398,7 @@ module.exports = {
     fixtureCrashed,
     fixtureFailed,
     fixtureRunning,
+    fixtureSetCleanupScript,
     fixtureRun,
     fixtureCount,
     fixturePrintSummary,
